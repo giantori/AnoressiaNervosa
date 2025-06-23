@@ -3,6 +3,7 @@ library(readxl)
 library(janitor)
 library(DataExplorer)
 library(writexl)
+library(glue)
 
 # Caricamento dati
 dati <- read_excel("../../../Dati/input/dati_18062025_AN.xlsx", sheet = "dati T0-1-2", skip = 1, n_max = 25)
@@ -144,8 +145,13 @@ dati <- dati %>% rename(
   
   pha_T0 = pa_46,
   pha_T1 = pa_84,
-  pha_T2 = pa_122
+  pha_T2 = pa_122,
+  
+  variazione_menu_T1 = variazione_menu_data_se_si_48, 
+  variazione_menu_T2 = variazione_menu_data_se_si_86 
 )
+
+dati['variazione_menu_T0'] = 'no'
 
 # Pulizia valori non numerici in variabili numeriche
 dati$mkcal_T0 <- gsub("^(\\d+).*", "\\1", dati$mkcal_T0)
@@ -157,5 +163,8 @@ dati <- dati %>% mutate(across(contains("variazione_menu"), ~ ifelse(. == "no", 
 dati$sintomo_2 <- as.character(dati$sintomo_2)
 dati$sintomo_2[is.na(dati$sintomo_2)] <- "nessun sintomo"
 
-write_xlsx(dati, path = "../../../Dati/output/dati_larghi_18062025_AN.xlsx")
+today <- Sys.Date()
+output_path <- glue("../../../Dati/output/dati_larghi_{today}_AN.xlsx")
+
+write_xlsx(dati, path = output_path)
 
