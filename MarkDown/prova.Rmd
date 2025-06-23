@@ -1,0 +1,136 @@
+---
+title: "Anoressia Nervosa"
+author: "Arianna Ruggiero, Gianluca Tori"
+date: "14/6/2025"
+output: html_document
+---
+
+```{r check_wd, include=FALSE}
+getwd()
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(dplyr)
+library(readxl)
+dati <- read_excel("Copia di DATI TESI.xlsx", sheet = "dati T0-1-2", skip = 1, n_max = 25)
+```
+
+#### Contesto
+
+Si vuole valutare se è possibile individuare i segni precoci di disfunzione
+articolare o muscolare caratteristici delle fasi iniziali di anoressia nervosa
+in strutture che non consentono le misurazioni di prova fisica utilizzando
+i parametri bioimpedenziometrici e altri marker clinici indiretti. Un'associazione tra i parametri di forza fisica e funzionalità motoria e i parametri BIA e marker clinci indiretti sarebbe potenzialmente utile nei centri sprovvisti di ergometria.<br>
+Si vuole quindi dimostrare che BIA e altri marker clinici indiretti e i parametri di  forza muscolare e funzionalità motoria migliorano o peggiorano in parallelo e identificare quali marker clinici indiretti anticipano (o riflettono) il recupero funzionale.
+
+Il nostro campione ha un totale di 23 osservazioni e 123 variabili. <br>
+Numero di pazienti con anoressia nervosa: 21 <br>
+Numero di pazienti con bulimia nervosa: 2 <br>
+Si rimuovono  le seguenti colonne, al fine di non avere informazioni 
+ridondanti e inoltre alcune rappresentano solo un calcolo intermedio usato per derivare altri indici: <br>
+h2 --> altezza al quadrato <br>
+data ricovero <br>
+data_T0 <br>
+data_T1 <br> 
+data_T2 <br>
+FFM, FFMp &rarr;  si preferisce tenere FFMI perchè è più accurato, corregge in base alla statura,
+distingue soggetti apparentemente normopeso ma con massa magra ridotta
+
+
+Si crea invece la variabile relativa al tempo, con modalità T0, T1 e T2 per
+il formato lungo
+
+
+| Tipologia variabile             | variabile                 | 
+|---------------------------------|---------------------------|
+| **covariate fisse nel tempo**   | patologia                 | 
+| &nbsp;                          | sintomo 1                 |
+| &nbsp;                          | sintomo 2                 |
+| &nbsp;                          | arto dominante            |
+| &nbsp;                          | altezza                   |
+| &nbsp;                          | sesso                     |        
+| &nbsp;                          | età                       |
+| **covariate tempo dipendenti**  | peso_T0, peso_T1, peso_T2 | 
+| &nbsp;                          | BMI_T0, BMI_T1, BMI_T2    |
+| &nbsp;                          | mkcal_T0, mkcal_T1, mkcal_T2 |
+| &nbsp;                          | variazmenu_T0, variazmenu_T1, variazmenu_T2 |
+| **Marker clinici indiretti a T0, T1, T2** | rq &rarr; quoziente respiratorio |
+| &nbsp;                              | rmr &rarr; metabolismo basale o a riposo, quantità minima di energia di cui l'organismo ha bisogno per rimanere in vita |
+| &nbsp;                              | vo2 max &rarr; volume di O2 consumata in un minuto durante l'attività fisica molto intensa | 
+| &nbsp;                              | Rx_ohm &rarr; resistenza  |
+| &nbsp;                              | Xc_ohm &rarr; reattanza   |
+| &nbsp;                              | FM &rarr; massa grassa      |
+| &nbsp;                              | FMp &rarr; % massa grassa      |
+| &nbsp;                              | FFMI &rarr; indice di massa magra normalizzato|   
+| &nbsp;                              | TBW  &rarr; acqua corporea totale  |
+| &nbsp;                              | TBWp &rarr; %  acqua corporea totale |
+| &nbsp;                              | ECW &rarr; acqua extracellulare   |
+| &nbsp;                              | ECWp &rarr; % acqua extracellulare  |
+| &nbsp;                              | ICW acqua intracellulare   |
+| &nbsp;                              | ICWp % acqua intracellulare   |
+| &nbsp;                              | BCM &rarr; massa cellulare corporea |
+| &nbsp;                              | pha &rarr;  integrità delle membrane cellulari|
+| &nbsp;                              | BCMI &rarr;  massa cellulare corporea in rapporto alla statura|
+| **parametri di forza fisica e funzionalità motoria a T0, T1, T2** | sx1, sx2, sx3, dx1, dx2, dx3  &rarr; 3 prove di forza arti superiori|
+| &nbsp;   | mediasx, mediadx &rarr; media prove di forza arti superiori |
+| &nbsp;   | dssx, dsdx &rarr; dev standard prove di forza arti superiori |
+| &nbsp;   | situptest  |
+| &nbsp;   | squattest  |
+| &nbsp;   | chairstandtest |
+| &nbsp;   | sitreachtest |
+
+Il  campione ha un totale di 23 osservazioni e 116 variabili. <br>
+<br>
+<br>
+
+#### Letteratura
+
++ Un **valore basso** di pha riflette un cattivo stato nutrizionale e muscolare, tipico
+dei primi stati di anoressia, un angolo di fase elevato invece è associato ad una maggiore massa muscolare e 
+ad una migliore salute cellulare
++ Un **rapporto elevato** di ECW/ICW indica ritenzione cellulare e quindi segno di squilibrio
++ Un **valore basso** di FFMI indica una minore resistenza muscolare e forza fisica
++ Un **valore basso** di BCM indica il rischio di debolezza muscolare
++ Un **valore basso** di RMR indica un adattamento metabolico da restrizione calorica cronica
++ Un **valore basso** di VO2 indica una ridotta capacità dell'organismo di utilizzare ossigeno per l'attività fisica 
+<br>
+<br>
+
+#### Dati mancanti
+
+```{r wrangle, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(janitor)
+dati = clean_names(dati) 
+colnames(dati)
+length(dati$sintomo_2[is.na(dati$sintomo_2)])
+# successivamente definiamo tutti i valori mancanti come "Valori mancanti"
+# deve essere character la variabile!
+dati$sintomo_2 = as.character(dati$sintomo_2)
+table(dati$sintomo_2)
+dati$sintomo_2[is.na(dati$sintomo_2)] = "nessun sintomo"
+sum(is.na(dati))  
+library(DataExplorer)
+na_fun = function(dati){
+  na = sapply(dati, function(x) sum(is.na(x)))
+  na = sort(na[na > 0])
+  na = data.frame(
+    variabile = names(na),
+    freq_assoluta = as.numeric(na),
+    freq_relativa = round(as.numeric(na)/nrow(dati), 4)
+  )
+  na
+}
+na = na_fun(dati)
+na
+var_na = na$variabile
+var_na
+dati_na = dati %>% select(all_of(var_na))
+```
+
+```{r dati_mancanti, echo=FALSE, fig.cap = " Percentuale di dati mancanti", out.width="70%", fig.align='center'}
+plot_missing(dati_na)
+```
+
+
