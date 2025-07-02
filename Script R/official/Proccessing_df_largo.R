@@ -1,16 +1,17 @@
 library(dplyr)
 library(readxl)
+library(tidyr)
 library(janitor)
 library(DataExplorer)
 library(writexl)
 library(glue)
+library(lattice)
+library(ggplot2)
 
 # Caricamento dati
-dati <- read_excel("../../../Dati/input/dati_18062025_AN.xlsx", sheet = "dati T0-1-2", skip = 1, n_max = 25)
+dati <- read_excel("input/dati_18062025_AN_aggiornati.xlsx", sheet = "Foglio3", skip = 1, n_max = 25)
 dati <- clean_names(dati) 
-
-# Rimozione colonne
-dati$paziente <- NULL
+colnames(dati)
 
 dati <- dati %>% select(-data_ricovero, -data_10, -data_49, -data_87, -h2)
 dati <- dati %>% select(-ffm_kg, -ffm_kg_36, -ffm_kg_74, -ffm_percent_37, -ffm_percent_75, -ffm_percent_113)
@@ -137,24 +138,39 @@ dati <- dati %>% rename(
   
   BCM_T0 = bcm_kg_45,
   BCM_T1 = bcm_kg_83,
-  BCM = bcm_kg_121,
+  BCM_T2 = bcm_kg_121,
   
   BCMI_T0 = bcmi_kg_m_47,
   BCMI_T1 = bcmi_kg_m_85,
-  BCMI = bcmi_kg_m,
+  BCMI_T2 = bcmi_kg_m,
   
   pha_T0 = pa_46,
   pha_T1 = pa_84,
   pha_T2 = pa_122,
   
-  variazione_menu_T1 = variazione_menu_data_se_si_48, 
-  variazione_menu_T2 = variazione_menu_data_se_si_86 
+  variazionemenu_T1 = variazione_menu_data_se_si_48, 
+  variazionemenu_T2 = variazione_menu_data_se_si_86 
 )
 
-dati['variazione_menu_T0'] = 'no'
+dati['variazionemenu_T0'] = 'no'
 
 # Pulizia valori non numerici in variabili numeriche
 dati$mkcal_T0 <- gsub("^(\\d+).*", "\\1", dati$mkcal_T0)
+dati$mkcal_T1 <- gsub("^(\\d+).*", "\\1", dati$mkcal_T1)
+dati$mkcal_T2 <- gsub("^(\\d+).*", "\\1", dati$mkcal_T2)
+
+
+dati <- dati %>% 
+  mutate(variazionemenu_T1 = if_else(variazionemenu_T1 != "no", "si", variazionemenu_T1))
+
+dati <- dati %>% 
+  mutate(variazionemenu_T2 = if_else(variazionemenu_T2 != "no", "si", variazionemenu_T2))
+
+dati$rx_T0 <- dati$rx_T0 %>%
+  gsub(",", ".", .) %>%             
+  gsub("[^0-9.]", "", .) %>%      
+  as.numeric()
+
 
 # Pulizia variazione_menu "si", "no"
 dati <- dati %>% mutate(across(contains("variazione_menu"), ~ ifelse(. == "no", "no", "si")))
@@ -163,8 +179,25 @@ dati <- dati %>% mutate(across(contains("variazione_menu"), ~ ifelse(. == "no", 
 dati$sintomo_2 <- as.character(dati$sintomo_2)
 dati$sintomo_2[is.na(dati$sintomo_2)] <- "nessun sintomo"
 
+# Rimozione dei pazienti con Bulimia Nervosa (BN) 
+dati <- dati %>% filter(patologia != "BN")
+
+# Rimozione variabile patologia (valori costanti)
+dati <- dati %>% select(-patologia) 
+
+# valori mancanti -> zero
+sum(is.na(dati)) 
+
+# classe variabili
+tipo_var = sapply(dati, class)
+tipo_var
+names(tipo_var[tipo_var == "character"])
+
+# character -> numeric
+dati <- dati %>%
+  mutate(across(c("mkcal_T0", "mkcal_T1", "mkcal_T2"), ~ as.numeric(.)))
+
+# Salvataggio dati output
 today <- Sys.Date()
-output_path <- glue("../../../Dati/output/dati_larghi_{today}_AN.xlsx")
-
+output_path <- glue("output/dati_larghi_{today}_AN.xlsx")
 write_xlsx(dati, path = output_path)
-
