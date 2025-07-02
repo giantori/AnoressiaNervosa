@@ -1,4 +1,4 @@
-dati <- read_excel("output/dati_larghi_2025-06-26_AN.xlsx", n_max = 25)
+dati <- read_excel("output/dati_larghi_2025-07-02_AN.xlsx", n_max = 25)
 
 dati_long <- dati %>%
   pivot_longer(
@@ -18,14 +18,14 @@ dim(dati_long)
 dati_long_prove <- dati_long %>%
   pivot_longer(
     cols = c(sx1, sx2, sx3),
-    names_to = "prova",
+    names_to = "provasx",
     values_to = "forza"
   )
 
 # grafico lattice plot prova 3
 xyplot(forza ~ tempo | factor(paziente),
        data = dati_long_prove,
-       groups = prova,
+       groups = provasx,
        type = "b",  # "b" = punti + linee
        pch = 16,    # tipo di punto (16 = cerchio pieno)
        auto.key = list(title = "Prova", columns = 3),

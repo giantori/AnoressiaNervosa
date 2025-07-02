@@ -159,7 +159,7 @@ dati$mkcal_T0 <- gsub("^(\\d+).*", "\\1", dati$mkcal_T0)
 dati$mkcal_T1 <- gsub("^(\\d+).*", "\\1", dati$mkcal_T1)
 dati$mkcal_T2 <- gsub("^(\\d+).*", "\\1", dati$mkcal_T2)
 
-
+# Pulizia variazione_menu "si", "no"
 dati <- dati %>% 
   mutate(variazionemenu_T1 = if_else(variazionemenu_T1 != "no", "si", variazionemenu_T1))
 
@@ -170,10 +170,6 @@ dati$rx_T0 <- dati$rx_T0 %>%
   gsub(",", ".", .) %>%             
   gsub("[^0-9.]", "", .) %>%      
   as.numeric()
-
-
-# Pulizia variazione_menu "si", "no"
-dati <- dati %>% mutate(across(contains("variazione_menu"), ~ ifelse(. == "no", "no", "si")))
 
 # Gestione NA su sintomo_2
 dati$sintomo_2 <- as.character(dati$sintomo_2)
