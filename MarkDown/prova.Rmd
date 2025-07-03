@@ -2,18 +2,13 @@
 title: "Anoressia Nervosa"
 author: "Arianna Ruggiero, Gianluca Tori"
 date: "14/6/2025"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r check_wd, include=FALSE}
 getwd()
-```
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
-library(dplyr)
-library(readxl)
-dati <- read_excel("Copia di DATI TESI.xlsx", sheet = "dati T0-1-2", skip = 1, n_max = 25)
 ```
 
 #### Contesto
@@ -97,40 +92,185 @@ ad una migliore salute cellulare
 <br>
 <br>
 
-#### Dati mancanti
+### Analisi esplorativa
 
 ```{r wrangle, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
+library(dplyr)
+library(readxl)
+library(tidyr)
 library(janitor)
-dati = clean_names(dati) 
-colnames(dati)
-length(dati$sintomo_2[is.na(dati$sintomo_2)])
-# successivamente definiamo tutti i valori mancanti come "Valori mancanti"
-# deve essere character la variabile!
-dati$sintomo_2 = as.character(dati$sintomo_2)
-table(dati$sintomo_2)
-dati$sintomo_2[is.na(dati$sintomo_2)] = "nessun sintomo"
-sum(is.na(dati))  
 library(DataExplorer)
-na_fun = function(dati){
-  na = sapply(dati, function(x) sum(is.na(x)))
-  na = sort(na[na > 0])
-  na = data.frame(
-    variabile = names(na),
-    freq_assoluta = as.numeric(na),
-    freq_relativa = round(as.numeric(na)/nrow(dati), 4)
+library(writexl)
+library(glue)
+library(lattice)
+library(ggplot2)
+library(pheatmap)
+
+dati <- read_excel("../../Dati/output/dati_larghi_2025-07-02_AN.xlsx", n_max = 25)
+
+dati_long <- dati %>%
+  pivot_longer(
+    cols = -c("sintomo_1", "sintomo_2", "arto_dom", "altezza_m", 
+              "sesso", "eta", "paziente"),
+    names_to = c(".value", "tempo"),
+    names_sep = "_"
   )
-  na
-}
-na = na_fun(dati)
-na
-var_na = na$variabile
-var_na
-dati_na = dati %>% select(all_of(var_na))
+
+dati_long$tempo <- recode(dati_long$tempo, "T0" = 0, "T1" = 1, "T2" = 2)
+
+dati_long_provesx <- dati_long %>%
+  pivot_longer(
+    cols = c(sx1, sx2, sx3),
+    names_to = "provasx",
+    values_to = "forzasx"
+  )
+
+dati_long_provedx <- dati_long %>%
+  pivot_longer(
+    cols = c(dx1, dx2, dx3),
+    names_to = "provadx",
+    values_to = "forzadx")
+
+dati_long_prove <- bind_cols(
+  dati_long_provesx,
+  dati_long_provedx %>% select(provadx, forzadx)  )
+
+dati_long_plot <- dati_long_prove %>%
+  select(paziente, tempo, provasx, forzasx, provadx, forzadx) %>%
+  pivot_longer(
+    cols = c(forzasx, forzadx),
+    names_to = "lato",
+    names_prefix = "forza",
+    values_to = "forza"
+  ) %>%
+  mutate(
+    prova = ifelse(lato == "sx", provasx, provadx),
+    paz_lato = paste0(paziente, "_", lato)  # soggetto + lato
+  )
+
 ```
 
-```{r dati_mancanti, echo=FALSE, fig.cap = " Percentuale di dati mancanti", out.width="70%", fig.align='center'}
-plot_missing(dati_na)
+```{r grafico-sxdx, echo=FALSE, fig.width=10, fig.height=10}
+xyplot(forza ~ tempo | paz_lato,
+       data = dati_long_plot,
+       groups = prova,
+       type = "b",
+       pch = 16,
+       auto.key = list(title = "Prove per lato", columns = 3),
+       xlab = "Tempo",
+       ylab = "Forza",
+       main = "Prove di forza lato sx e lato dx nel tempo per soggetto",
+       layout = c(6, 7))  # es: 6 colonne, 7 righe per 42 pannelli
+
 ```
 
 
+Il grafico sopra mostra l'andamento della forza nel tempo (3 punti temporali) su entrambi i lati (dx = destro, sx = sinistro) per ciascun soggetto.
+Per ogni soggetto si hanno due pannelli, uno per ogni lato del corpo.
+Alcuni soggetti mostrano aumenti marcati nel tempo, altri mostrano una forza costante nel tempo. 
+In alcuni casi, un lato è sistematicamente più forte o mostra un andamento diverso.
+
+```{r calcolo-forza, echo=FALSE}
+forza_media_lato <- dati_long_plot %>%
+  group_by(paziente, lato) %>%
+  summarise(forza_media = mean(forza, na.rm = TRUE), .groups = "drop")
+
+
+lato_piu_forte <- forza_media_lato %>%
+  group_by(paziente) %>%
+  slice_max(forza_media) %>%
+  select(paziente, lato, forza_media)
+```
+
+
+Il grafico sottostante mostra la forza media per ciascun soggetto, distinta per lato del corpo.
+In molti pazienti il lato destro (dx) presenta valori medi superiori al lato sinistro, indicando una possibile dominanza funzionale e si può anche osservare un'ampia variabilità tra soggetti.
+
+```{r grafico-latopiùforte, echo=FALSE, fig.width=8, fig.height=5}
+ggplot(forza_media_lato, aes(x = paziente, y = forza_media, fill = lato)) +
+  geom_col(position = "dodge") +
+  labs(title = "Forza media per lato e soggetto", y = "Forza media") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+
+### Lattice plot per i test di performance fisica
+
+```{r grafico-situptest, echo=FALSE, fig.width=8, fig.height=5}
+xyplot(situptest ~ tempo | factor(paziente),
+       data = dati_long,
+       type = "b",       # punti + linee
+       pch = 16,         # cerchio pieno
+       xlab = "Tempo",
+       ylab = "Sit-up Test",
+       main = "Andamento del Sit-up Test nel tempo per soggetto")
+```
+
+```{r grafico-squattest, echo=FALSE, fig.width=8, fig.height=5}
+xyplot(squattest ~ tempo | factor(paziente),
+       data = dati_long,
+       type = "b",       # punti + linee
+       pch = 16,         # cerchio pieno
+       xlab = "Tempo",
+       ylab = "Squat Test",
+       main = "Andamento del Sit-up Test nel tempo per soggetto")
+```
+
+```{r grafico-chairstandtest, echo=FALSE, fig.width=8, fig.height=5}
+xyplot(chairstandtest ~ tempo | factor(paziente),
+       data = dati_long,
+       type = "b",       # punti + linee
+       pch = 16,         # cerchio pieno
+       xlab = "Tempo",
+       ylab = "Chair stand Test",
+       main = "Andamento del Sit-up Test nel tempo per soggetto")
+```
+
+```{r grafico-sitreachtest, echo=FALSE, fig.width=8, fig.height=5}
+xyplot(sitreachtest ~ tempo | factor(paziente),
+       data = dati_long,
+       type = "b",       # punti + linee
+       pch = 16,         # cerchio pieno
+       xlab = "Tempo",
+       ylab = "Sit reach Test",
+       main = "Andamento del Sit-up Test nel tempo per soggetto")
+```
+
+```{r dati_long_mc, echo=FALSE}
+dati_long_mc <- dati_long %>%
+  select(RMR, VO2, RQ, rx, xc, FM, FMp, FFMI, TBW, TBWp, ECW, ECWp, ICW, ICWp, 
+         BCM, pha, BCMI)
+```
+
+```{r dati_long_ff, echo=FALSE}
+
+dati_long_ff <- dati_long %>%
+  select(sx1, sx2, sx3, dx1, dx2, dx3, mediasx, mediadx, dssx, dsdx, situptest,
+         squattest, chairstandtest, sitreachtest)
+```
+
+## Analisi delle componenti principali 
+
+```{r pca, echo=FALSE}
+dati_long_mc_pca <- princomp(dati_long_mc, cor = TRUE, scores = TRUE)
+loadings_mc <- dati_long_mc_pca$loadings  # matrice variabili × componenti
+loadings_mc_mat <- as.matrix(loadings_mc)
+
+dati_long_ff_pca <- princomp(dati_long_ff, cor = TRUE, scores = TRUE)
+loadings_ff <- dati_long_ff_pca$loadings  # matrice variabili × componenti
+loadings_ff_mat <- as.matrix(loadings_ff)
+```
+
+
+```{r grafico-pheatmap, echo=FALSE, fig.width=8, fig.height=5}
+pheatmap(loadings_mc_mat[, 1:6],
+         cluster_rows = TRUE,
+         cluster_cols = FALSE, 
+         main = "Heatmap dei loadings PCA (componenti 1–6)")
+
+pheatmap(loadings_ff_mat[, 1:6],
+         cluster_rows = TRUE,
+         cluster_cols = FALSE, 
+         main = "Heatmap dei loadings PCA (componenti 1–6)")
+```

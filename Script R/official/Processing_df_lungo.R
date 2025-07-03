@@ -7,6 +7,7 @@ library(writexl)
 library(glue)
 library(lattice)
 library(ggplot2)
+library(pheatmap)
 
 dati <- read_excel("output/dati_larghi_2025-07-02_AN.xlsx", n_max = 25)
 
@@ -108,7 +109,99 @@ ggplot(forza_media_lato, aes(x = paziente, y = forza_media, fill = lato)) +
   labs(title = "Forza media per lato e soggetto", y = "Forza media") +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
-# grafico lattice plot per la forza fisica 
+# grafico lattice plot per le prove situptest, Squat Test, Chair stand Test, 
+# Sit reach Test
+
+xyplot(situptest ~ tempo | factor(paziente),
+       data = dati_long,
+       type = "b",       # punti + linee
+       pch = 16,         # cerchio pieno
+       xlab = "Tempo",
+       ylab = "Sit-up Test",
+       main = "Andamento del Sit-up Test nel tempo per soggetto")
+
+xyplot(squattest ~ tempo | factor(paziente),
+       data = dati_long,
+       type = "b",       # punti + linee
+       pch = 16,         # cerchio pieno
+       xlab = "Tempo",
+       ylab = "Squat Test",
+       main = "Andamento del Sit-up Test nel tempo per soggetto")
+
+xyplot(chairstandtest ~ tempo | factor(paziente),
+       data = dati_long,
+       type = "b",       # punti + linee
+       pch = 16,         # cerchio pieno
+       xlab = "Tempo",
+       ylab = "Chair stand Test",
+       main = "Andamento del Sit-up Test nel tempo per soggetto")
+
+xyplot(sitreachtest ~ tempo | factor(paziente),
+       data = dati_long,
+       type = "b",       # punti + linee
+       pch = 16,         # cerchio pieno
+       xlab = "Tempo",
+       ylab = "Sit reach Test",
+       main = "Andamento del Sit-up Test nel tempo per soggetto")
+
+# grafico lattice plot per i marker clinici
+
+xyplot(pha ~ tempo | factor(paziente),
+       data = dati_long,
+       type = "b",       # punti + linee
+       pch = 16,         # cerchio pieno
+       xlab = "Tempo",
+       ylab = "Phase Angle",
+       main = "AVariazione del phase angle nel tempo suddivisa per soggetto")
+
+
+summary(dati_long$pha)
+
+# Analisi delle componenti principali 
+
+# Suddivisione del dataset:
+# - dati_long_mc : contiene solo i marker clinici
+# - dati_long_ff: contiene solo le variabili delle prove di forza fisica
+
+dati_long_mc <- dati_long %>%
+  select(RMR, VO2, RQ, rx, xc, FM, FMp, FFMI, TBW, TBWp, ECW, ECWp, ICW, ICWp, 
+         BCM, pha, BCMI)
+
+dati_long_ff <- dati_long %>%
+  select(sx1, sx2, sx3, dx1, dx2, dx3, mediasx, mediadx, dssx, dsdx, situptest,
+         squattest, chairstandtest, sitreachtest)
+
+# analisi delle componenti principali per dati_long_mc e dati_long_ff
+dati_long_mc_pca <- princomp(dati_long_mc, cor = TRUE, scores = TRUE)
+loadings_mc <- dati_long_mc_pca$loadings  # matrice variabili × componenti
+loadings_mc_mat <- as.matrix(loadings_mc)
+
+dati_long_ff_pca <- princomp(dati_long_ff, cor = TRUE, scores = TRUE)
+loadings_ff <- dati_long_ff_pca$loadings  # matrice variabili × componenti
+loadings_ff_mat <- as.matrix(loadings_ff)
+
+# heatmap dei loadings per le prime 6 componenti principali 
+pheatmap(loadings_mc_mat[, 1:6],
+         cluster_rows = TRUE,
+         cluster_cols = FALSE, 
+         main = "Heatmap dei loadings PCA (componenti 1–6)")
+
+pheatmap(loadings_ff_mat[, 1:6],
+         cluster_rows = TRUE,
+         cluster_cols = FALSE, 
+         main = "Heatmap dei loadings PCA (componenti 1–6)")
+
+
+# loadings della prima cp per entrambi i set dei variabili 
+loadings_mc_pc1 <- as.matrix(dati_long_mc_pca$loadings[, 1])
+loadings_ff_pc1 <- as.matrix(dati_long_ff_pca$loadings[, 1])
+
+df_confronto <- data.frame(
+  forza_fisica = loadings_ff_pc1,
+  marker_clinici = loadings_mc_pc1,
+  variabile = names(loadings_ff_pc1)  # o rownames se necessario
+)
+
 
 
 # Salvataggio dati_long output
