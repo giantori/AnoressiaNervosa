@@ -1,0 +1,620 @@
+
+---
+title: "Può B sostituire A (dato X)? — Analisi esplorativa e inferenziale"
+author: "Team AN"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    df_print: paged
+---
+
+```{r setup_librerie, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = FALSE)
+set.seed(123)
+```
+
+## Obiettivo
+
+**Domanda clinico-operativa:** dato il set di covariate $\mathbf{X}$ e due blocchi di variabili, **A** (misure costose) e **B** (misure economiche), possiamo usare **B** per **predire** **A** nello **stesso tempo $t$** con accuratezza e accordo **sufficienti** da **sostituire** A a livello individuale?
+
+---
+
+## Piano dell’analisi
+
+1. **Costruzione KPI** per A e B tramite **z-score** e **media riga** (z-media per blocco).
+2. **Esplorativo:** distribuzioni per tempo, scatter A vs B per tempo, spaghetti per soggetto, Bland–Altman **grezzo**.
+3. **Inferenziale:** modello misto sincrono
+
+$$
+\text{KPI}_A = \beta_0 + \beta_B \,\text{KPI}_B + \boldsymbol{\beta}_X^\top \mathbf{X} + \gamma_t + u_{0i} + \varepsilon
+$$
+
+con $(1|\text{paziente})$, **LOSO-CV**, **calibrazione** (TOST su intercetta e slope), **Bland–Altman condizionale** (sui residui tolte le X), **bootstrap clusterizzato** sulla **correlazione dei residui**.
+
+**Criteri di “sostituibilità”:**
+
+* Prestazione: $R^2_{CV} \ge 0.65$ **e** $RMSE_{CV} \le \text{MCID}$.
+* Calibrazione (TOST): intercetta in $[-0.2, +0.2]$ SD; slope in $[0.9,1.1]$.
+* Accordo (BA condizionale): LoA entro $\pm \text{MCID}$ (buono) o $\pm 1.25\times\text{MCID}$ (accettabile).
+* Condivisione residui: $\text{corr}(e_A, e_B) \ge 0.60$ con IC stretto.
+
+---
+
+## Perché z-score? (normalizzazione e KPI)
+
+**z-score** di una variabile $X$ è
+
+$$
+z = \frac{X - \bar X}{s_X},
+$$
+
+porta ogni misura a **media 0** e **deviazione standard 1**, rendendo **confrontabili** variabili eterogenee e impedendo che quelle “grandi” dominino la media.
+
+Il **KPI per blocco** è la **z-media per riga**:
+
+$$
+\text{KPI\_A}_{it} = \frac{1}{p_A}\sum_{j\in A} z_{ij,t}, \quad
+\text{KPI\_B}_{it} = \frac{1}{p_B}\sum_{k\in B} z_{ik,t}.
+$$
+
+È una riduzione **robusta, trasparente** e stabile quando la PCA **non** concentra varianza nella prima componente.
+
+---
+
+## Import, reshaping, definizione blocchi
+
+
+```{r import_dati, echo=FALSE, message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyr)
+library(readxl)
+library(janitor)
+library(ggplot2)
+library(gridExtra)
+library(lattice)
+library(pheatmap)
+library(glue)
+library(writexl)
+library(openxlsx)
+library(lme4)
+library(lmerTest)
+library(broom)
+library(broom.mixed)
+library(MuMIn)
+library(scales)
+
+# Prova a leggere il "wide" usato nella tua ultima versione
+path_wide <- "../../../Dati/output/dati_larghi_2025-07-02_AN.xlsx"
+
+if (file.exists(path_wide)) {
+  dati_wide <- read_excel(path_wide, n_max = Inf) %>% clean_names()
+  meta_cols <- c("sintomo_1","sintomo_2","arto_dom","altezza_m","sesso","eta","paziente")
+  meta_cols <- intersect(meta_cols, names(dati_wide))
+
+  dati_long <- pivot_longer(
+    dati_wide,
+    cols = -all_of(meta_cols),
+    names_to  = c(".value", "tempo"),
+    names_sep = "_t"
+  ) %>%
+    mutate(tempo = recode(tempo, "0"="T0","1"="T1","2"="T2"),
+           tempo = factor(tempo, levels = c("T0","T1","T2")))
+} else {
+  # Fallback: leggi i tre long se preferisci
+  X_raw <- read_excel("dati_lunghi_2025-08-26_AN.xlsx") %>% clean_names()
+  A_raw <- read_excel("dati_long_mc.xlsx") %>% clean_names()
+  B_raw <- read_excel("dati_long_ff.xlsx") %>% clean_names()
+  if (!"paziente" %in% names(X_raw) && "pazienti" %in% names(X_raw)) X_raw <- rename(X_raw, paziente = pazienti)
+  if (!"paziente" %in% names(A_raw) && "pazienti" %in% names(A_raw)) A_raw <- rename(A_raw, paziente = pazienti)
+  if (!"paziente" %in% names(B_raw) && "pazienti" %in% names(B_raw)) B_raw <- rename(B_raw, paziente = pazienti)
+
+  X_raw <- mutate(X_raw, tempo = as.character(tempo))
+  A_raw <- mutate(A_raw, tempo = as.character(tempo))
+  B_raw <- mutate(B_raw, tempo = as.character(tempo))
+
+  A_vars_full <- c("rmr","vo2","rq","rx","xc","fm","fmp","ffmi","tbw","tbwp","ecw","ecwp","icw","icwp","bcm","pha","bcmi")
+  B_vars_full <- c("sx1","sx2","sx3","dx1","dx2","dx3","mediasx","mediadx","dssx","dsdx","situptest","squattest","chairstandtest","sitreachtest")
+
+  dati_long <- X_raw %>%
+    left_join(select(A_raw, paziente, tempo, any_of(A_vars_full)), by = c("paziente","tempo")) %>%
+    left_join(select(B_raw, paziente, tempo, any_of(B_vars_full)), by = c("paziente","tempo")) %>%
+    mutate(tempo = factor(tempo, levels = sort(unique(tempo))))
+}
+glimpse(dati_long)
+```
+
+```{r definizione_blocchi, echo=FALSE, message=FALSE, warning=FALSE}
+lower_names <- tolower(names(dati_long))
+
+A_vars <- c("rmr","vo2","rq","rx","xc","fm","fmp","ffmi","tbw","tbwp","ecw","ecwp","icw","icwp","bcm","pha","bcmi")
+B_vars <- c("sx1","sx2","sx3","dx1","dx2","dx3","mediasx","mediadx","dssx","dsdx","situptest","squattest","chairstandtest","sitreachtest")
+A_vars <- intersect(A_vars, lower_names)
+B_vars <- intersect(B_vars, lower_names)
+
+X_candidates <- c("patologia","sintomo_1","sintomo_2","arto_dom","arto_dominante",
+                  "altezza_m","altezza","sesso","peso","bmi","mkcal","variazionemenu","eta")
+X_vars <- intersect(X_candidates, lower_names)
+
+length(A_vars); length(B_vars); X_vars
+```
+
+---
+
+## Costruzione dei KPI z-mediati
+
+```{r kpi_costruzione, echo=FALSE, message=FALSE, warning=FALSE}
+z_scale <- function(x) as.numeric(scale(x))
+
+dati_proc <- dati_long %>%
+  clean_names() %>%
+  mutate(
+    across(all_of(A_vars), z_scale, .names = "zA_{col}"),
+    across(all_of(B_vars), z_scale, .names = "zB_{col}")
+  ) %>%
+  mutate(
+    kpi_a = rowMeans(across(starts_with("zA_")), na.rm = TRUE),
+    kpi_b = rowMeans(across(starts_with("zB_")), na.rm = TRUE)
+  )
+
+if (!is.factor(dati_proc$tempo)) {
+  dati_proc <- mutate(dati_proc, tempo = factor(tempo, levels = sort(unique(tempo))))
+}
+stopifnot("paziente" %in% names(dati_proc))
+```
+
+---
+
+## Esplorativo
+
+### Distribuzioni KPI per tempo
+
+```{r plot_densita, fig.height=4, fig.width=9, echo=FALSE, message=FALSE, warning=FALSE}
+p_dens_A <- ggplot(dati_proc, aes(kpi_a, fill = tempo)) +
+  geom_density(alpha = 0.35) +
+  labs(title = "Distribuzione KPI_A per tempo", x = "KPI_A (z-media blocco A)", y = "Densità") +
+  theme_minimal()
+
+p_dens_B <- ggplot(dati_proc, aes(kpi_b, fill = tempo)) +
+  geom_density(alpha = 0.35) +
+  labs(title = "Distribuzione KPI_B per tempo", x = "KPI_B (z-media blocco B)", y = "Densità") +
+  theme_minimal()
+
+gridExtra::grid.arrange(p_dens_A, p_dens_B, ncol = 2)
+```
+
+**Lettura.** KPI\_B tende a essere più **disperso** di KPI\_A (maggiore variabilità intra/inter), coerente con la natura più “comportamentale”/funzionale dei test di B rispetto ai marcatori di A.
+
+### Scatter A vs B per tempo
+
+```{r plot_scatter, fig.height=4.8, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(dati_proc, aes(kpi_b, kpi_a, color = tempo)) +
+  geom_point(size = 2, alpha = 0.8) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Relazione sincrona KPI_A vs KPI_B per tempo",
+       x = "KPI_B (z-media blocco B)",
+       y = "KPI_A (z-media blocco A)") +
+  theme_minimal()
+```
+
+**Lettura.** Pendenza positiva (i blocchi **si parlano**), ma nuvole larghe ⇒ **relazione moderata**, non stretta.
+
+### Spaghetti per soggetto
+
+```{r plot_spaghetti, fig.height=5.8, echo=FALSE, message=FALSE, warning=FALSE}
+df_longKPI <- dati_proc %>%
+  select(paziente, tempo, kpi_a, kpi_b) %>%
+  pivot_longer(cols = c(kpi_a, kpi_b), names_to = "kpi", values_to = "valore")
+
+ggplot(df_longKPI,
+       aes(x = tempo, y = valore,
+           group = interaction(paziente, kpi),
+           color = kpi)) +
+  geom_line(alpha = 0.35) +
+  geom_point(alpha = 0.8, position = position_jitter(width = 0.03, height = 0)) +
+  labs(title = "Andamento temporale KPI per soggetto",
+       x = "Tempo", y = "Valore KPI (z)") +
+  theme_minimal()
+```
+
+**Lettura.** Eterogeneità tra soggetti: in alcuni A e B sono **paralleli**, in altri **divergono** ⇒ considerare **random slope** o **sottogruppi**.
+
+### Bland–Altman grezzo
+
+```{r plot_ba_grezzo, fig.height=4.8, echo=FALSE, message=FALSE, warning=FALSE}
+df_ba <- dati_proc %>%
+  mutate(mean_ab = (kpi_a + kpi_b)/2,
+         diff_ab =  kpi_a - kpi_b)
+
+ba_bias  <- mean(df_ba$diff_ab, na.rm = TRUE)
+ba_sd    <- sd(df_ba$diff_ab,   na.rm = TRUE)
+ba_low   <- ba_bias - 1.96*ba_sd
+ba_up    <- ba_bias + 1.96*ba_sd
+
+ggplot(df_ba, aes(mean_ab, diff_ab, color = tempo)) +
+  geom_point(alpha = 0.8) +
+  geom_hline(yintercept = ba_bias, linetype = "dashed") +
+  geom_hline(yintercept = ba_low,  linetype = "dotted") +
+  geom_hline(yintercept = ba_up,   linetype = "dotted") +
+  labs(title = "Bland–Altman grezzo (A vs B)",
+       x = "Media (A,B)", y = "Differenza (A − B)") +
+  theme_minimal()
+```
+
+**Lettura.** Bias \~ 0 (nessuno spostamento sistematico), **LoA larghi** ⇒ **non intercambiabili** “grezzi”.
+
+---
+
+## Inferenziale
+
+### MCID: definizione e stima
+
+**MCID** (Minimal Clinically Important Difference) come soglia “distribution-based”:
+
+$$
+\text{MCID} = 0.5 \times SD\_{\Delta}, \quad SD\_{\Delta} = SD(\text{KPI\_A}_{i,t+1} - \text{KPI\_A}_{it}).
+$$
+
+```{r mcid_stima, echo=FALSE, message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyr)
+library(janitor)
+
+# Assumo che tu abbia già un oggetto "dati_long" (wide->long) con le colonne viste nel tuo Show in New Window.
+# Se non esiste, sostituisci qui con la tua lettura del file e il pivot come da tuoi chunk precedenti.
+
+# 1) Pulizia nomi (minuscoli, underscore, niente spazi)
+dati_proc <- dati_long %>% janitor::clean_names()
+
+# 2) Allineo 'tempo' a fattore ordinato (T0,T1,T2) o (0,1,2) in base a ciò che hai
+if (is.numeric(dati_proc$tempo)) {
+  dati_proc <- dati_proc %>% mutate(tempo = factor(tempo, levels = sort(unique(tempo))))
+} else {
+  # prova a riconoscere T0,T1,T2
+  lv <- unique(as.character(dati_proc$tempo))
+  if (all(lv %in% c("T0","T1","T2"))) {
+    dati_proc <- dati_proc %>% mutate(tempo = factor(tempo, levels = c("T0","T1","T2")))
+  } else {
+    dati_proc <- dati_proc %>% mutate(tempo = factor(tempo, levels = sort(unique(tempo))))
+  }
+}
+
+# 3) Sinonimi dei nomi per blocco A (correggo le piccole differenze viste nel tuo dataset)
+syn_map <- c(
+  "fmp"  = "f_mp",
+  "tbwp" = "tb_wp",
+  "ecwp" = "ec_wp",
+  "icwp" = "ic_wp"
+)
+
+# Funzione: se il nome "target" non esiste ma esiste il sinonimo, crea alias
+alias_if_needed <- function(df, target, alias) {
+  if (!(target %in% names(df)) && alias %in% names(df)) {
+    df <- dplyr::rename(df, !!target := .data[[alias]])
+  }
+  df
+}
+
+for (nm in names(syn_map)) {
+  dati_proc <- alias_if_needed(dati_proc, nm, syn_map[[nm]])
+}
+
+# 4) Definizione blocchi A e B (tutto minuscolo post-clean_names)
+A_vars <- c("rmr","vo2","rq","rx","xc","fm","fmp","ffmi","tbw","tbwp","ecw","ecwp","icw","icwp","bcm","pha","bcmi")
+B_vars <- c("sx1","sx2","sx3","dx1","dx2","dx3","mediasx","mediadx","dssx","dsdx","situptest","squattest","chairstandtest","sitreachtest")
+A_vars <- intersect(A_vars, names(dati_proc))
+B_vars <- intersect(B_vars, names(dati_proc))
+
+# 5) KPI z-mediati (standardizzazione per colonna e media riga)
+z_scale <- function(x) as.numeric(scale(x))
+
+dati_proc <- dati_proc %>%
+  mutate(
+    across(all_of(A_vars), z_scale, .names = "zA_{col}"),
+    across(all_of(B_vars), z_scale, .names = "zB_{col}")
+  ) %>%
+  mutate(
+    kpi_a = rowMeans(dplyr::across(starts_with("zA_")), na.rm = TRUE),
+    kpi_b = rowMeans(dplyr::across(starts_with("zB_")), na.rm = TRUE)
+  )
+
+# 6) Verifica presenza colonne chiave
+stopifnot("paziente" %in% names(dati_proc))
+stopifnot("kpi_a" %in% names(dati_proc), "kpi_b" %in% names(dati_proc))
+
+# 7) Piccolo check
+dplyr::glimpse(dati_proc)
+
+df_change <- dati_proc %>%
+  arrange(paziente, tempo) %>%
+  group_by(paziente) %>%
+  mutate(kpi_a_lead = dplyr::lead(kpi_a)) %>%
+  ungroup() %>%
+  mutate(diff_a = kpi_a_lead - kpi_a) %>%
+  filter(!is.na(diff_a))
+
+if (nrow(df_change) == 0) {
+  warning("Non ho differenze adiacenti per stimare SD_change; MCID sarà NA.")
+  SD_change_A <- NA_real_
+  MCID <- NA_real_
+} else {
+  SD_change_A <- sd(df_change$diff_a, na.rm = TRUE)
+  MCID <- 0.5 * SD_change_A
+}
+MCID
+
+```
+
+### Modello misto sincrono
+
+Modello:
+
+$$
+\text{KPI\_A}_{it} = \beta_0 + \beta_B\,\text{KPI\_B}_{it} + \boldsymbol{\beta}_X^\top \mathbf{X}_{it} + \gamma_{t} + u_{0i} + \varepsilon_{it},
+$$
+
+con $u_{0i}\sim \mathcal{N}(0,\sigma_u^2)$ (random intercept per paziente).
+
+```{r mixed_fit, echo=FALSE, message=FALSE, warning=FALSE}
+X_keep <- intersect(c("patologia","sintomo_1","sintomo_2","arto_dom","arto_dominante",
+                      "sesso","bmi","mkcal","variazionemenu","eta"),
+                    names(dati_proc))
+
+form_base <- as.formula(paste(
+  "kpi_a ~ kpi_b + tempo",
+  if (length(X_keep)>0) paste("+", paste(X_keep, collapse = " + ")) else "",
+  "+ (1|paziente)"
+))
+
+mod_base <- lmer(form_base, data = dati_proc, REML = TRUE, na.action = na.omit)
+summary(mod_base)
+MuMIn::r.squaredGLMM(mod_base)
+```
+
+### Prestazioni e LOSO-CV
+
+```{r cv_loso, echo=FALSE, message=FALSE, warning=FALSE}
+df <- dati_proc %>%
+  mutate(
+    KPI_A = kpi_a,  # alias solo per output/grafici
+    KPI_B = kpi_b
+  )
+
+# garantisco che i fattori siano coerenti
+for (fv in c("sesso","patologia","sintomo_1","sintomo_2","arto_dom","variazionemenu","tempo")) {
+  if (fv %in% names(df)) df[[fv]] <- as.factor(df[[fv]])
+}
+
+# --- 2) Predizioni fisse (solo effetti fissi) ---
+df$A_hat_fixed <- predict(mod_base, newdata = df, re.form = ~0, allow.new.levels = TRUE)
+df$A_resid     <- df$kpi_a - df$A_hat_fixed  # attenzione: qui serve kpi_a, non KPI_A
+
+overall_RMSE <- sqrt(mean((df$kpi_a - df$A_hat_fixed)^2, na.rm = TRUE))
+overall_MAE  <- mean(abs(df$kpi_a - df$A_hat_fixed), na.rm = TRUE)
+
+cat("Overall RMSE:", overall_RMSE, "\n")
+cat("Overall MAE :", overall_MAE, "\n")
+
+loso_cv <- function(data, formula) {
+  ids <- unique(data$paziente)
+  out <- vector("list", length(ids))
+  
+  for (k in seq_along(ids)) {
+    id_test <- ids[k]
+    train <- data %>%
+      filter(paziente != id_test) %>%
+      drop_na(all_of(all.vars(formula)))
+    test  <- data %>% filter(paziente == id_test)
+    
+    if (nrow(train) < 10 || nrow(test) == 0) next
+    
+    # --- 1) assicuro che i livelli dei fattori di test siano coerenti con quelli del train ---
+    for (v in all.vars(formula)) {
+      if (v %in% names(train) && is.factor(train[[v]])) {
+        test[[v]] <- factor(test[[v]], levels = levels(train[[v]]))
+      }
+    }
+    
+    # --- 2) stimo il modello sul training ---
+    fit <- try(lmer(formula, data = train, REML = TRUE, na.action = na.omit,
+                    control = lmerControl(check.conv.singular = "ignore")), silent = TRUE)
+    if (inherits(fit, "try-error")) next
+    
+    # --- 3) predico sul test (solo effetti fissi) ---
+    pred <- try(predict(fit, newdata = test, re.form = ~0, allow.new.levels = TRUE), silent = TRUE)
+    if (inherits(pred, "try-error")) next
+    
+    out[[k]] <- tibble(paziente = id_test, obs = test$kpi_a, pred = pred)
+  }
+  
+  bind_rows(out)
+}
+
+# Esegui CV
+cv_pred <- loso_cv(df, form_base)
+
+cv_metrics <- cv_pred %>%
+  summarize(
+    RMSE = sqrt(mean((obs - pred)^2, na.rm = TRUE)),
+    MAE  = mean(abs(obs - pred), na.rm = TRUE),
+    R2   = cor(obs, pred, use = "pairwise.complete.obs")^2
+  )
+
+cv_metrics
+```
+
+### Calibrazione (TOST su intercetta e slope)
+
+Regressione di **z(A)** su **z(A\_hat)**:
+
+$$
+z(A) = \alpha + \beta \, z(\hat A) + \epsilon.
+$$
+
+**TOST:** equivalenza se $ \alpha \in [-0.2, 0.2]$ SD e $ \beta \in [0.9,1.1]$.
+
+```{r calib_tost, echo=FALSE, message=FALSE, warning=FALSE}
+# Assicuro di avere le predizioni fisse nel dataset
+if (!"ahat_fixed" %in% names(dati_proc)) {
+  dati_proc$ahat_fixed <- predict(mod_base, newdata = dati_proc,
+                                  re.form = ~0, allow.new.levels = TRUE)
+}
+
+# Creo dataset per calibrazione
+df_cal <- dati_proc %>%
+  filter(!is.na(ahat_fixed), !is.na(kpi_a)) %>%
+  mutate(
+    zA    = as.numeric(scale(kpi_a)),
+    zAhat = as.numeric(scale(ahat_fixed))
+  )
+
+# Regressione calibrazione
+cal_fit <- lm(zA ~ zAhat, data = df_cal)
+summary(cal_fit)
+
+# Intervalli di confidenza 90%
+ci90 <- confint(cal_fit, level = 0.90)
+
+# Intervalli equivalenza
+b_interc <- c(-0.2, 0.2)
+b_slope  <- c(0.9, 1.1)
+
+equiv_interc <- (ci90["(Intercept)",1] >= b_interc[1]) & (ci90["(Intercept)",2] <= b_interc[2])
+equiv_slope  <- (ci90["zAhat",1]      >= b_slope[1])   & (ci90["zAhat",2]      <= b_slope[2])
+
+c(equiv_interc = equiv_interc, equiv_slope = equiv_slope)
+```
+
+### Bland–Altman **condizionale** (residui | X)
+
+```{r ba_condizionale, fig.height=4.8, echo=FALSE, message=FALSE, warning=FALSE}
+form_XA <- update(form_base, . ~ . - kpi_b)
+form_XB <- as.formula(
+  paste(
+    "kpi_b ~ tempo",
+    if (length(X_keep)>0) paste("+", paste(X_keep, collapse = " + ")) else "",
+    "+ (1|paziente)"
+  )
+)
+
+mod_AX <- lmer(form_XA, data = dati_proc, REML = TRUE, na.action = na.omit)
+mod_BX <- lmer(form_XB, data = dati_proc, REML = TRUE, na.action = na.omit)
+
+dati_proc$eA <- with(dati_proc, kpi_a - predict(mod_AX, newdata = dati_proc, re.form = ~0, allow.new.levels = TRUE))
+dati_proc$eB <- with(dati_proc, kpi_b - predict(mod_BX, newdata = dati_proc, re.form = ~0, allow.new.levels = TRUE))
+
+df_ba_cond <- dati_proc %>%
+  transmute(paziente, tempo, mean_e = (eA + eB)/2, diff_e = (eA - eB))
+
+ba_bias_c  <- mean(df_ba_cond$diff_e, na.rm = TRUE)
+ba_sd_c    <- sd(df_ba_cond$diff_e, na.rm = TRUE)
+ba_low_c   <- ba_bias_c - 1.96*ba_sd_c
+ba_up_c    <- ba_bias_c + 1.96*ba_sd_c
+
+c(bias = ba_bias_c, low = ba_low_c, up = ba_up_c, MCID = MCID)
+
+ggplot(df_ba_cond, aes(mean_e, diff_e, color = tempo)) +
+  geom_point(alpha = 0.8) +
+  geom_hline(yintercept = ba_bias_c, linetype = "dashed") +
+  geom_hline(yintercept = ba_low_c,  linetype = "dotted") +
+  geom_hline(yintercept = ba_up_c,   linetype = "dotted") +
+  geom_hline(yintercept =  MCID,     linetype = "longdash") +
+  geom_hline(yintercept = -MCID,     linetype = "longdash") +
+  labs(title = "Bland–Altman condizionale (residui A e B | X, tempo)",
+       x = "Media residui", y = "Differenza residui (A − B)") +
+  theme_minimal()
+```
+
+### Condivisione del “non osservato”: corr(residui) + bootstrap clusterizzato
+
+```{r bootstrap_corr_residui, echo=FALSE, message=FALSE, warning=FALSE}
+res_corr <- cor(dati_proc$eA, dati_proc$eB, use = "pairwise.complete.obs")
+
+boot_corr <- function(data, B = 500) {
+  ids <- unique(data$paziente)
+  out <- numeric(B)
+  for (b in seq_len(B)) {
+    samp_ids <- sample(ids, size = length(ids), replace = TRUE)
+    dd <- dplyr::bind_rows(lapply(samp_ids, function(id) dplyr::filter(data, paziente == id)))
+    out[b] <- suppressWarnings(cor(dd$eA, dd$eB, use = "pairwise.complete.obs"))
+  }
+  out
+}
+
+corr_boot <- boot_corr(dati_proc, B = 500)
+ci_corr <- quantile(corr_boot, probs = c(0.025, 0.975), na.rm = TRUE)
+
+c(res_corr = res_corr, low = ci_corr[1], up = ci_corr[2])
+```
+
+**Perché il bootstrap clusterizzato?** Le osservazioni **non** sono indipendenti (stesso paziente su più tempi). Ricampionando **pazienti** (cluster) preserviamo la dipendenza interna e otteniamo IC **affidabili**.
+
+---
+
+## Report sintetico
+
+```{r report_finale, echo=FALSE, message=FALSE, warning=FALSE}
+report <- list(
+  MCID = MCID,
+  overall_RMSE = overall_RMSE,
+  overall_MAE  = overall_MAE,
+  CV_metrics   = cv_metrics,
+  calib_equivalence_intercept_pm0_2SD = equiv_interc,
+  calib_equivalence_slope_0_9_to_1_1  = equiv_slope,
+  BA_cond_bias = ba_bias_c,
+  BA_cond_LoA  = c(lower = ba_low_c, upper = ba_up_c),
+  Residual_corr    = res_corr,
+  Residual_corr_CI = ci_corr
+)
+report
+```
+
+---
+
+## Interpretazione con i **tuoi numeri** (riassunto decisionale)
+
+> **Valori forniti:**
+>
+> * MCID = **0.11718**
+> * **LOSO-CV**: RMSE = **0.212**, MAE = **0.174**, $R^2$ = **0.583**
+> * **Calibrazione (TOST)**: intercetta **TRUE** (entro $[-0.2,+0.2]$ SD), slope **FALSE** (fuori $[0.9,1.1]$)
+> * **Bland–Altman condizionale**: bias $\approx 0$, LoA = **\[−0.797, +0.797]**
+> * **corr(residui)** = **0.445** (IC 95%: **0.146–0.651**)
+
+**Conclusioni:**
+
+1. **Prestazione predittiva**: $R^2_{CV} = 0.583$ ⇒ **associazione moderata**. Tuttavia $RMSE_{CV} = 0.212$ è **\~1.8× MCID** (0.117) ⇒ **errore troppo alto** per sostituibilità individuale.
+2. **Calibrazione**: intercetta ok (nessun bias medio), **slope ≠ 1** ⇒ le previsioni sono **schiacciate verso la media**; serve **ricalibrazione** (o modelli per **sottogruppi**).
+3. **Accordo condizionale**: LoA **±0.797** >> MCID ⇒ **accordo insufficiente** anche dopo aver tolto le X.
+4. **Condivisione del non osservato**: corr(residui) **0.445** (IC 0.146–0.651) ⇒ **moderata**, non forte.
+
+**Verdetto attuale:** **B non può sostituire A** per stima **individuale** *allo stato attuale*. È utile per **trend di gruppo**, **ranking grossolano** o come **covariata**. Per “promuovere” B a surrogato: ridurre RMSE sotto MCID, rientrare nei TOST (slope \~1), restringere LoA (±MCID) e aumentare corr(residui).
+
+---
+
+## Quale approccio preferire e prossimi passi
+
+* **Preferito ora:** KPI **z-mediato**, **modello misto** con **LOSO-CV**, **TOST** e **BA condizionale**, **bootstrap clusterizzato**.
+* **Per migliorare la sostituibilità:**
+
+  1. **Ricalibrazione** (calibration-in-the-large + slope); verificare slope $[0.9,1.1]$.
+  2. **KPI\_B robusto** (mediana / trimmed 20%) o **pesi** per variabili B più affidabili.
+  3. **sPLS/PLS** (analisi parallela) per un KPI\_B **ottimizzato** a predire KPI\_A; poi **stessa** validazione (LOSO, TOST, BA).
+  4. **Analisi per tempo** e **Δ-analisi** (ΔB → ΔA) se l’uso è monitorare **cambiamento**.
+  5. **Sottogruppi** (patologia, sesso) se emerge **eterogeneità** (random slope alto).
+
+---
+
+## Appendice: formule chiave
+
+* **z-score**: $z=(X-\bar X)/s_X$.
+* **KPI z-mediato**: $\text{KPI}=\frac{1}{p}\sum_j z_j$.
+* **Modello misto**: $\text{KPI}_A=\beta_0+\beta_B\text{KPI}_B+\boldsymbol{\beta}_X^\top\mathbf{X}+\gamma_t+u_{0i}+\varepsilon$.
+* **MCID** (distribution-based): $\text{MCID}=0.5\times SD(\Delta \text{KPI}_A)$.
+* **TOST**: equivalenza se IC$_{90\%}$ di $\alpha$ è in $[-0.2,0.2]$ SD e di $\beta$ in $[0.9,1.1]$.
+* **Bland–Altman**: bias $=\overline{A-B}$, LoA $=\text{bias}\pm1.96\,SD(A-B)$.
+* **Bootstrap clusterizzato**: ricampionamento per **paziente** per IC che rispettano la dipendenza intra-soggetto.
+
+---

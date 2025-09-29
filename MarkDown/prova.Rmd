@@ -22,6 +22,7 @@ Si vuole quindi dimostrare che BIA e altri marker clinici indiretti e i parametr
 Il nostro campione ha un totale di 23 osservazioni e 123 variabili. <br>
 Numero di pazienti con anoressia nervosa: 21 <br>
 Numero di pazienti con bulimia nervosa: 2 <br>
+Non si considerano i pazienti con bulimia nervosa.
 Si rimuovono  le seguenti colonne, al fine di non avere informazioni 
 ridondanti e inoltre alcune rappresentano solo un calcolo intermedio usato per derivare altri indici: <br>
 h2 --> altezza al quadrato <br>
@@ -106,6 +107,17 @@ library(glue)
 library(lattice)
 library(ggplot2)
 library(pheatmap)
+library(gridExtra)
+library(grid)
+library(gridGraphics)
+library(lme4)
+library(lmerTest)
+library(broom)          # per tidying modelli lm/lmer
+library(broom.mixed)    # per lmer
+library(MuMIn)          # R2 per mixed models
+library(patchwork)      # combinare grafici ggplot
+library(scales)         # utilità per etichette
+
 
 dati <- read_excel("../../Dati/output/dati_larghi_2025-07-02_AN.xlsx", n_max = 25)
 
@@ -237,6 +249,308 @@ xyplot(sitreachtest ~ tempo | factor(paziente),
        main = "Andamento del Sit-up Test nel tempo per soggetto")
 ```
 
+
+I pattern evidenziano differenze intra-soggetto e inter-soggetto.
+Nel corso dei tre tempi (T0, T1, T2) non si osservano cali di performance nei test (sit-up, squat, chair stand, sit & reach), alcuni test migliorano, altri restano invariati.
+In diversi pazienti si notano miglioramenti progressivi.
+E' possibile che la funzione motoria tenda a migliorare gradualmente nel tempo (?) ||Questo è un dettaglio naturalmente da confrontare con la letteratura scientifica e sicuramente saprai meglio tu di me||
+
+Il sit-and-reach ha dinamiche diverse dagli altri, riflettendo più la flessibilità che la forza.
+
+## Relazioni bivariate tra marcatori clinici e test di performance
+```{r boxplot pha, echo=FALSE}
+
+dati_long$sitreachtest = gsub("-13", "13", dati_long$sitreachtest)
+dati_long$sitreachtest = gsub("-8", "8", dati_long$sitreachtest)
+
+dati_long$sitreachtest = as.numeric(dati_long$sitreachtest)
+
+
+# Boxplot relazione marker clinici con variabili riferite alla forza fisica 
+
+# Trasformazione della variabile chairstandtest in una variabile categorica
+dati_long$chairstandtest = as.integer(dati_long$chairstandtest)  # deve essere numerica
+intervalli <- c(0,9,15,20)  # esempio
+etichette <- c("0-9", "10-15", "16-20")  # esempio
+
+dati_long <- dati_long %>%
+  mutate(
+    chairstandtest_ = cut(
+      chairstandtest,
+      breaks = c(0, 9, 15, 20),
+      labels = c("0-9", "10-15", "16-20"),
+      include.lowest = TRUE
+    )
+  )
+
+# Trasformazione della variabile sitreachtest in una variabile categorica
+dati_long$sitreachtest = as.integer(dati_long$sitreachtest)  # deve essere numerica
+intervalli <- c(0, 5, 16, 25)  # esempio
+etichette <- c("0-5", "6-16", "17-25") # esempio
+
+# Trasformazione della variabile in una variabile categorica
+dati_long <- dati_long %>%
+  mutate(
+    sitreachtest_ = cut(
+      sitreachtest,
+      breaks = c(0, 5, 16, 25),
+      labels = c("0-5", "6-16", "17-25"),
+      include.lowest = TRUE
+    )
+  )
+
+# 2) Metti in formato long le 4 variabili categoriali
+vars_cat <- c("situptest", "squattest","chairstandtest_","sitreachtest_")
+
+# Verifica che ci siano tutte
+stopifnot(all(vars_cat %in% names(dati_long)))
+stopifnot("pha" %in% names(dati_long))
+
+d_long <- dati_long %>%
+  mutate(across(all_of(vars_cat), as.factor)) %>%
+  pivot_longer(
+    cols = all_of(vars_cat),
+    names_to = "test",
+    values_to = "categoria"
+  )
+
+
+p <- ggplot(d_long, aes(x = categoria, y = pha, fill = categoria)) +
+  geom_boxplot(outlier.alpha = 0.6) +
+  facet_wrap(~ test, scales = "free_x", ncol = 2) +
+  labs(
+    x = "Test di performance fisica",
+    y = "Phase Angle",
+    title = "Boxplot di PHA per categoria dei test",
+    subtitle = "Pannelli: situptest, squattest, chairstandtest, sitreachtest"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.spacing = unit(1, "lines"),
+    legend.position = "none"   # puoi togliere o tenere la legenda
+  )
+
+print(p)
+```
+
+In questo grafico vediamo il phase angle (PHA) distribuito per categoria di performance ai diversi test fisici: sit-up test, squat test, chair stand test e sit-and-reach test.
+Si nota una tendenza all’aumento del PHA con l’aumentare delle categorie di performance in tutti i test considerati.
+Questo significa che i soggetti che ottengono punteggi migliori nei test fisici tendono ad avere anche un phase angle più elevato.
+
+Il phase angle è un marker della qualità e integrità della massa cellulare, oltre che della funzione della membrana. Un valore più alto è associato a uno stato nutrizionale e muscolare migliore.
+I test di performance, invece, valutano direttamente la funzionalità fisica.
+
+Il parallelismo osservato tra i due parametri suggerisce che il PHA potrebbe riflettere, almeno in parte, le variazioni di performance fisica.
+Nel *chair stand test* e nel *sit-up test* la progressione è chiara: i soggetti nei livelli più alti di performance hanno valori medi di PHA più elevati e distribuzioni più compatte.
+Nel squat test la tendenza è simile, anche se con maggiore variabilità intra-categoria.
+Nel *sit-and-reach* test (che misura la flessibilità), la relazione è meno lineare: il PHA aumenta leggermente con le categorie, ma la variabilità rimane alta e le differenze meno marcate. Il PHA potrebbe essere più strettamente legato alla forza e alla massa muscolare che non alla flessibilità. 
+
+Se il PHA mostra una buona correlazione con i test di forza e resistenza (come sit-up, squat e chair stand), questo parametro potrebbe rappresentare un marker oggettivo e meno dipendente dallo sforzo per monitorare lo stato muscolare e funzionale.
+
+Per la flessibilità, invece, il PHA sembra meno predittivo, confermando che potrebbe essere un indicatore più specifico di integrità muscolare piuttosto che di altre componenti della performance fisica.
+
+
+```{r boxplot , echo=FALSE}
+p <- ggplot(d_long, aes(x = categoria, y = rx, fill = categoria)) +
+  geom_boxplot(outlier.alpha = 0.6) +
+  facet_wrap(~ test, scales = "free_x", ncol = 2) +
+  labs(
+    x = "Test di performance fisica",
+    y = "rx",
+    title = "Boxplot di rx per categoria dei test",
+    subtitle = "Pannelli: situptest, squattest, chairstandtest, sitreachtest"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.spacing = unit(1, "lines"),
+    legend.position = "none"   # puoi togliere o tenere la legenda
+  )
+
+print(p)
+```
+
+In questo grafico osserviamo la resistenza (Rₓ), parametro bioelettrico inversamente legato alla quantità di massa magra e all’idratazione cellulare, suddivisa per categorie di performance ai diversi test fisici (chair stand, sit-and-reach, sit-up e squat test).
+A differenza del phase angle, qui non emerge una relazione chiara tra Rₓ e le categorie di performance.
+In alcuni test, come il chair stand, la resistenza tende ad aumentare leggermente nelle categorie intermedie e poi a ridursi nelle categorie più alte, senza un trend costante.
+Nel sit-and-reach test, la distribuzione di Rₓ resta pressoché stabile tra le diverse categorie di flessibilità.
+
+La resistenza riflette soprattutto la quantità di acqua corporea e di massa magra: valori più alti indicano minore conduttività, quindi minore massa magra o maggiore resistenza del tessuto.
+Nei pazienti con anoressia nervosa, dove la riduzione della massa muscolare è una caratteristica centrale, ci saremmo attesi un decremento progressivo della resistenza con l’aumentare della performance fisica. Tuttavia, i dati mostrano un quadro più eterogeneo.
+Ciò suggerisce che la resistenza da sola non cattura in modo diretto le variazioni funzionali legate alla performance.
+
+Nei boxplot di confronto con Chair stand test e sit-up test le mediane di Rₓ oscillano ma non seguono un andamento progressivo chiaro.
+Nel boxplot di confronto con Squat test si osserva una variabilità molto elevata, con distribuzioni ampie che rendono difficile identificare un trend.
+
+Questi risultati indicano che la resistenza (Rₓ) da sola non sembra un buon surrogato dei test di performance fisica.
+Mentre il phase angle aveva mostrato un parallelismo con la forza e la resistenza muscolare, la resistenza appare meno sensibile e più influenzata da altri fattori (idratazione, stato elettrolitico, variabilità individuale).
+
+Sembrerebbe che il PHA abbia maggiore potenziale come marker clinico rispetto alla resistenza isolata.
+Naturalmente queste analisi sono 
+
+```{r boxplot VO2, echo=FALSE}
+p <- ggplot(d_long, aes(x = categoria, y = VO2, fill = categoria)) +
+  geom_boxplot(outlier.alpha = 0.6) +
+  facet_wrap(~ test, scales = "free_x", ncol = 2) +
+  labs(
+    x = "Test di performance fisica",
+    y = "VO2",
+    title = "Boxplot di VO2 per categoria dei test",
+    subtitle = "Pannelli: situptest, squattest, chairstandtest, sitreachtest"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.spacing = unit(1, "lines"),
+    legend.position = "none"   # puoi togliere o tenere la legenda
+  )
+
+print(p)
+```
+Si può osservare che: 
+
+Nel boxplot che evidenzia la relazione bivariata con Chair stand test: la progressione è netta, con valori di VO₂ più alti nelle categorie superiori e una distribuzione più compatta nei livelli di migliore performance.
+
+Sit-up test: Si evidenzia una maggiore variabilità intra-categoria. Si conferma comunque un trend di crescita del VO₂.
+
+Squat test: la tendenza all’aumento non è molto evidente, con distribuzioni ampie nelle categorie intermedie.
+
+Sit-and-reach test: anche qui il VO₂ aumenta leggermente nelle categorie superiori, ma la progressione è meno marcata, coerente con il fatto che il VO₂ (e il PHA) riflettono soprattutto la componente muscolare e metabolica più che la flessibilità.
+
+
+Il VO₂ rappresenta la capacità ossidativa e la funzionalità metabolica muscolare: valori più elevati sono indice di una migliore efficienza e integrità muscolare. Il parallelismo con i test di performance, soprattutto quelli che richiedono forza e resistenza muscolare (chair stand, sit-up, squat), indica che il VO₂ potrebbe rispecchiare in maniera consistente lo stato funzionale.
+
+```{r boxplot FM, echo=FALSE}
+p <- ggplot(d_long, aes(x = categoria, y = FM, fill = categoria)) +
+  geom_boxplot(outlier.alpha = 0.6) +
+  facet_wrap(~ test, scales = "free_x", ncol = 2) +
+  labs(
+    x = "Test di performance fisica",
+    y = "FM",
+    title = "Boxplot di FM per categoria dei test",
+    subtitle = "Pannelli: situptest, squattest, chairstandtest, sitreachtest"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.spacing = unit(1, "lines"),
+    legend.position = "none"   # puoi togliere o tenere la legenda
+  )
+
+print(p)
+```
+
+Nei pazienti con anoressia nervosa, la FM è generalmente ridotta.
+I risultati suggeriscono che una maggiore FM può associarsi a migliori performance nei test che coinvolgono forza e resistenza, riflettendo un miglior bilancio energetico e nutrizionale, Tuttavia, la forte variabilità osservata indica che la FM da sola non è un indicatore specifico della capacità funzionale: individui con valori simili di FM possono avere performance molto diverse.
+Nello specifico, nella relazione tra FM e 
+- Chair stand test: FM aumenta in maniera evidente nelle categorie più alte, ma la variabilità nelle categorie intermedie è molto ampia.
+
+- Sit-up test: trend simile, con FM più elevata tra i soggetti nelle categorie 2 e 3, ma anche qui la dispersione dei dati è notevole.
+
+- Squat test: andamento crescente, anche se i boxplot mostrano una forte eterogeneità intra-categoria.
+
+- Sit-and-reach test: non emerge un chiaro legame fra FM e performance, coerentemente con la natura del test che valuta flessibilità e non forza muscolare.
+
+
+```{r boxplot TBW, echo=FALSE}
+p <- ggplot(d_long, aes(x = categoria, y = TBW, fill = categoria)) +
+  geom_boxplot(outlier.alpha = 0.6) +
+  facet_wrap(~ test, scales = "free_x", ncol = 2) +
+  labs(
+    x = "Test di performance fisica",
+    y = "TBW",
+    title = "Boxplot di TBW per categoria dei test",
+    subtitle = "Pannelli: situptest, squattest, chairstandtest, sitreachtest"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.spacing = unit(1, "lines"),
+    legend.position = "none"   # puoi togliere o tenere la legenda
+  )
+
+print(p)
+```
+
+La TBW riflette in larga parte la massa magra, poiché l’acqua è contenuta principalmente nei tessuti muscolari e metabolicamente attivi.
+Nei pazienti con anoressia nervosa, la riduzione della massa muscolare si accompagna a una riduzione della TBW.
+
+nello specifico, la relazione tra TBW e 
+- Chair stand test: andamento chiaro, con un incremento progressivo della TBW nelle categorie più alte.
+
+- Sit-up test: pattern simile, con valori di TBW più elevati per chi raggiunge i punteggi maggiori, anche se con una variabilità interna ampia.
+
+- Squat test: la stessa tendenza si conferma, con un aumento della TBW nei livelli più alti di performance.
+
+- Sit-and-reach test: andamento meno lineare, coerente con la natura del test che non dipende direttamente dalla massa e dall’idratazione muscolare.
+
+Questo grafico mostra che la TBW segue in parte le variazioni di performance fisica, soprattutto nei test muscolari.
+Ciò suggerisce che la TBW potrebbe essere utilizzata come marker clinico complementare, utile a monitorare i pazienti in maniera meno dipendente dalla motivazione e dalla collaborazione necessaria nei test fisici.
+Tuttavia, la TBW da sola non è sufficientemente specifica, non riflette aspetti qualitativi della funzione muscolare come invece fa il PHA.
+
+
+```{r boxplot ECW, echo=FALSE}
+p <- ggplot(d_long, aes(x = categoria, y = ECW, fill = categoria)) +
+  geom_boxplot(outlier.alpha = 0.6) +
+  facet_wrap(~ test, scales = "free_x", ncol = 2) +
+  labs(
+    x = "Test di performance fisica",
+    y = "ECW",
+    title = "Boxplot di ECW per categoria dei test",
+    subtitle = "Pannelli: situptest, squattest, chairstandtest, sitreachtest"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.spacing = unit(1, "lines"),
+    legend.position = "none"   # puoi togliere o tenere la legenda
+  )
+
+print(p)
+```
+
+Non si osserva una chiara relazione tra ECW e performance fisica: la ECW non sembrerebbe un marker specifico della funzione muscolare.
+nello specifico, la relazione tra ECW e 
+
+- Chair stand test: le mediane di ECW sono piuttosto simili tra le categorie, con una lieve riduzione della variabilità nelle performance più alte.
+
+- Sit-and-reach test: distribuzioni sovrapponibili, senza indicazioni di una relazione sistematica.
+
+- Sit-up test: lieve tendenza all’aumento nelle categorie più alte, ma con dispersione ampia che rende difficile interpretare un trend netto.
+
+- Squat test: andamento simile, con incrementi leggeri ma non lineari.
+
+```{r boxplot ICW, echo=FALSE}
+p <- ggplot(d_long, aes(x = categoria, y = ICW, fill = categoria)) +
+  geom_boxplot(outlier.alpha = 0.6) +
+  facet_wrap(~ test, scales = "free_x", ncol = 2) +
+  labs(
+    x = "Test di performance fisica",
+    y = "ICW",
+    title = "Boxplot di ICW per categoria dei test",
+    subtitle = "Pannelli: situptest, squattest, chairstandtest, sitreachtest"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.spacing = unit(1, "lines"),
+    legend.position = "none"   # puoi togliere o tenere la legenda
+  )
+
+print(p)
+```
+Nei test di forza e resistenza (chair stand, sit-up, squat) emerge una tendenza positiva: i soggetti che appartengono alle categorie di performance più elevate presentano valori medi di ICW più alti.
+Nel sit-and-reach test (flessibilità), invece, la relazione non appare altrettanto marcata, con distribuzioni sovrapponibili e una maggiore variabilità tra le categorie.
+
+Questi dati indicano che la ICW potrebbe rappresentare un marcatore clinico promettente per affiancare o, in parte, sostituire i test di performance fisica, soprattutto per la valutazione della forza e della resistenza muscolare.
+Tuttavia, come tutte le analisi bivariate esplorative, si tratta di associazioni preliminari che dovranno essere confermate con approcci multivariati e analisi inferenziali.
+
+Queste analisi si limitano a descrivere l’associazione tra ciascun test di performance fisica e un singolo parametro clinico (PHA, Rx o VO₂).
+Non tengono conto della correlazione tra più variabili (ad esempio età, BMI, durata della malattia, stato idrico o altre misure cliniche).
+Non forniscono ancora evidenza inferenziale: i boxplot permettono di visualizzare andamenti e tendenze, ma non consentono di stabilire relazioni causali o significative dal punto di vista statistico senza ulteriori modelli o test.
+
+
 ```{r dati_long_mc, echo=FALSE}
 dati_long_mc <- dati_long %>%
   select(RMR, VO2, RQ, rx, xc, FM, FMp, FFMI, TBW, TBWp, ECW, ECWp, ICW, ICWp, 
@@ -250,27 +564,572 @@ dati_long_ff <- dati_long %>%
          squattest, chairstandtest, sitreachtest)
 ```
 
+
 ## Analisi delle componenti principali 
 
-```{r pca, echo=FALSE}
+La PCA consiste nella trasformazione lineare delle variabili originarie in un insieme di componenti principali, un numero inferiore rispetto a quello iniziale, che spiegano la massima varianza possibile dei dati, minimizzando la perdita di informazione e riducendo al contempo la dimensionalità del problema.
+La dimensionalità di un dataset corrisponde al numero di variabili (o caratteristiche) che descrivono ogni osservazione.
+Nel nostro caso, abbiamo due insiemi di variabili da voler confrontare per valutare se esiste un'associazione tra i due gruppi, a tal proposito si esegue la PCA su entrambi i gruppi e si considera la prima componente principale per entrambi con l'idea di confrontare la prima componente principale del primo gruppo e la prima componente principale del secondo gruppo. 
+sie esegue prima una standardizzazione delle variabili perché la PCA si basa sulla varianza: se le variabili hanno scale diverse, dominerebbero quelle con varianze maggiori.
+
+### PCA sulle variabili riferite ai marcatori clinici 
+
+```{r pca_mc, echo=FALSE}
 dati_long_mc_pca <- princomp(dati_long_mc, cor = TRUE, scores = TRUE)
 loadings_mc <- dati_long_mc_pca$loadings  # matrice variabili × componenti
 loadings_mc_mat <- as.matrix(loadings_mc)
+```
 
+
+```{r grafico-pheatmap_mc, echo=FALSE, fig.width=8, fig.height=5}
+pheatmap(loadings_mc_mat[, 1:6],
+         cluster_rows = TRUE,
+         cluster_cols = FALSE, 
+         main = "Heatmap dei loadings PCA delle variabili riferite ai marcatori biologici (componenti 1–6)")
+```
+
+### Visualizzazione della varianza totale spiegata da ciascuna componente principale
+```{r summary_pca_mc, echo=FALSE}
+summary(dati_long_mc_pca)
+```
+
+### Screegraph
+```{r plot_pca_mc, echo=FALSE}
+plot(dati_long_mc_pca)
+```
+
+Si sceglie il numero minimo di componenti che spiegano abbastanza varianza nei dati, evitando di includerne troppi (overfitting) o troppo pochi (perdita di informazione), segnuendo la regola del gomito.
+All’inizio, la varianza spiegata cala molto velocemente, dopo un certo punto il “gomito”, la riduzione nella varianza spiegata diventa più lenta e graduale.
+Il "gomito" è il punto dopo il quale aggiungere ulteriori componenti non porta grandi miglioramenti.Il numero di componenti prima del gomito è quello che conviene mantenere.
+Scegliamo di considerare solo le prime 3 componenti principali, perché sono quelle che spiegano la maggior parte della varianza totale.
+
+Per valutare quanto ogni variabile contribuisce alla spiegazione complessiva della varianza considerata dalle prime tre componenti principali, consideriamo
+l'indice di contributo alla varianza totale spiegata.
+
+L'indice di contributo per la variabile $j$ è definito come:
+$$\text{I}_j = \sum_{i=1}^{k} \frac{(loading_{ji})^2}{\lambda_i}$$
+
+I loadings Sono i coefficienti che collegano le variabili originali con le componenti principali; in sostanza descrivono come ogni variabile contribuisce alle componenti.
+In termini geometrici dicono quanto ogni variabile "pesa" in ogni nuovo asse.
+Gli autovalori rappresentano la varianza spiegata da ciascuna componente principale. Più l’autovalore è alto, più quella componente spiega una parte importante dell’informazione nei dati.
+
+Si osserva nella tabella seguente quanto ogni variabile conrtibuisce alla spiegazione complessiva della varianza spiegata dalle prime 3 componenti principali
+
+```{r tabella_mc, echo=FALSE}
+eigenvalues_mc <- dati_long_mc_pca$sdev[1:3]^2
+ind_mc <- apply(loadings_mc[,1:3]^2, 1, function(x) sum(x / eigenvalues_mc))
+tabella_mc <- data.frame(Variabile = names(ind_mc),
+                         Contributo = ind_mc)
+tabella_mc <- tabella_mc[order(-tabella_mc$Contributo), ]  
+```
+
+```{r grafico_importanzavariabili_mc, echo=FALSE}
+grafico_mc = ggplot(tabella_mc, aes(x = reorder(Variabile, Contributo), y = Contributo, fill = Contributo)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  scale_fill_gradient(low = "#CDE1F2", high = "#1B4F72") +
+  labs(
+    title =  "Contributo delle variabili riferite ai marcatori biologici\nella varianza totale (PCA)",,
+    x = "Variabili",
+    y = "Indice di Contributo"
+  ) +
+theme_minimal(base_size = 9) +
+theme(
+  plot.title = element_text(size = 9)
+)
+```
+
+
+```{r graficoetabella_mc, echo=FALSE, message=FALSE, warning=FALSE}
+tabella_plot <- gridExtra::tableGrob(tabella_mc)
+grid.arrange(tabella_plot, grafico_mc, ncol = 2)
+```
+
+Si procede rimuovendo la variabile con un indice più basso e si rieffettua la pca per valutare pian piano quanto migliora la varianza spiegata dalla prima componente. 
+Dopo la rimozione delle ultime sei variabili ( "RQ", "BCM","FFMI", "BCMI", "RMR", "VO2")) ci si accorge che la prima componente riesce a spiegare circa il 40% della variabilità totale, considerando invece anche la seconda componente principale riusciremmo a spiegare circa il 70% della variabilità totale, che rappresenta un ottimo risultato.
+
+```{r dati_long_mc_ridotto, echo=FALSE}
+dati_long_mc_ridotto = dati_long_mc %>% select(-"RQ", -"BCM", -"FFMI", 
+                                                       -"BCMI", -"RMR", -"VO2")
+dati_long_mc_pca_ridotto <- princomp(dati_long_mc_ridotto, cor = TRUE, scores = TRUE)
+loadings_mc_ridotto <- dati_long_mc_pca_ridotto$loadings 
+loadings_mc_mat_ridotto <- as.matrix(loadings_mc_ridotto)
+pheatmap(loadings_mc_mat_ridotto[, 1:6],
+         cluster_rows = TRUE,
+         cluster_cols = FALSE, 
+         main = "Heatmap dei loadings PCA delle variabili riferite ai marcatori biologici  (componenti 1–6)")
+```
+
+### Visualizzazione della varianza totale spiegata da ciascuna componente principale
+```{r summary_mc_ridotto, echo=FALSE}
+summary(dati_long_mc_pca_ridotto)
+```
+
+### Screegraph
+```{r Screegraph_mc_ridotto, echo=FALSE}
+plot(dati_long_mc_pca_ridotto)
+```
+
+Scegliamo anche in questo caso in base alla regola del gomito, di considerare solo le prime 3 componenti principali, perché sono quelle che spiegano la maggior parte della varianza totale
+
+Si osserva nella tabella seguente quanto ogni variabile contribuisce alla spiegazione complessiva della varianza spiegata dalle prime 3 componenti principali
+
+```{r tabella_mc_ridotta, echo=FALSE}
+eigenvalues_mc_ridotto <- dati_long_mc_pca_ridotto$sdev[1:3]^2
+ind_mc_ridotto <- apply(loadings_mc_ridotto[,1:3]^2, 1, function(x) sum(x / eigenvalues_mc_ridotto))
+tabella_mc_ridotto <- data.frame(Variabile = names(ind_mc_ridotto),
+                         Contributo = ind_mc_ridotto)
+tabella_mc_ridotto <-tabella_mc_ridotto[order(-tabella_mc_ridotto$Contributo), ]  
+```
+
+```{r grafico_importanzavariabili_mc_ridotto, echo=FALSE}
+
+grafico_mc_ridotto = ggplot(tabella_mc_ridotto, aes(x = reorder(Variabile, Contributo), y = Contributo, fill = Contributo)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  scale_fill_gradient(low = "#CDE1F2", high = "#1B4F72") +
+  labs(
+    title = "Contributo delle variabili alla varianza totale (PCA)",
+    x = "Variabili",
+    y = "Indice di Contributo"
+  ) +
+  theme_minimal(base_size = 9) +
+theme(
+  plot.title = element_text(size = 9)
+)
+```
+
+```{r graficoetabella_mc_rdiotto, echo=FALSE, message=FALSE, warning=FALSE}
+tabella_plot <- gridExtra::tableGrob(tabella_mc_ridotto)
+grid.arrange(tabella_plot, grafico_mc_ridotto, ncol = 2)
+```
+
+### PCA sulle variabili riferite alla forza fisica 
+
+```{r pca_ff, echo=FALSE}
 dati_long_ff_pca <- princomp(dati_long_ff, cor = TRUE, scores = TRUE)
 loadings_ff <- dati_long_ff_pca$loadings  # matrice variabili × componenti
 loadings_ff_mat <- as.matrix(loadings_ff)
 ```
 
 
-```{r grafico-pheatmap, echo=FALSE, fig.width=8, fig.height=5}
-pheatmap(loadings_mc_mat[, 1:6],
-         cluster_rows = TRUE,
-         cluster_cols = FALSE, 
-         main = "Heatmap dei loadings PCA (componenti 1–6)")
-
+```{r grafico-pheatmap_ff, echo=FALSE, fig.width=8, fig.height=5}
 pheatmap(loadings_ff_mat[, 1:6],
          cluster_rows = TRUE,
          cluster_cols = FALSE, 
-         main = "Heatmap dei loadings PCA (componenti 1–6)")
+         main = "Heatmap dei loadings PCA per le variabili riferite alla forza fisica (componenti 1–6)")
 ```
+
+### Visualizzazione della varianza totale spiegata da ciascuna componente principale
+```{r summary_pca_ff, echo=FALSE}
+summary(dati_long_ff_pca)
+```
+
+### Screegraph
+```{r plot_pca_ff, echo=FALSE}
+plot(dati_long_ff_pca)
+```
+
+Si può osservare che inizialmente la prima componente principale del gruppo dei marcatori clinici spiega il 30%  della varianza totale.
+Dopo la rimozione delle variabili a basso contributo (RQ, BCM, FFMI, BCMI, RMR, VO2) → PC1 ≈ 40%, PC1+PC2 ≈ 70%.
+Il gruppo dei marker clinici si potrebbe ridurre a 2 componenti senza perdita eccessiva di informazione, piuttosto che ad una componente.
+La prima componente principale del gruppo di variabili riferite alla performance fisica spiega il 52% della varianza totale. Qui il blocco di variabili è più coeso e può essere più facilmente interpretato da un'unica componente principale.
+
+Inoltre possiamo confermare in parte quanto visto attraverso l'analisi bivariata. 
+Il Pha fornisce un'elevato contributo per la spuegazione della varianza totale.
+Abbiamo osservato attraverso l'analisi bivariata che la resistenza (Rₓ) da sola non sembra un buon surrogato dei test di performance fisica. Attraverso un approccio multivariato possiamo osservare che questa contribuisce nella definizione della prima componente principale, quindi è una variabile della quale sicuramente tener conto.
+
+# Grafico relazione tra PC1(A) e PC1(B)
+
+Nel grafico seguente mostriamo la relazione tra la prima componente principale ottenuta dal blocco di variabili ridotto riferite ai marcatori biologici e ilsecondo blocco di variabili riferite alla forza fisica
+ utilizziamo gli scores della prima componente principale e gli scores della seconda componente principale. 
+Gli Scores sono le coordinate di ciascun individuo, nello spazio delle componenti principali. Questi valori rappresentano dove si posiziona ciascun individuo rispetto agli assi principali (PC1, PC2, ecc.).
+
+```{r plot_pca_mc_ff, echo=FALSE}
+pc1_ff = dati_long_ff_pca$scores[,1]
+pc1_mc = dati_long_mc_pca_ridotto$scores[,1]
+plot(x = pc1_mc, y = pc1_ff)
+library(dplyr)
+library(tidyr)
+library(lattice)
+library(dplyr)
+library(tidyr)
+library(lattice)
+
+# Aggiungi le componenti principali al dataset
+dati_long$PC_FF <- dati_long_ff_pca$scores[, 1]
+dati_long$PC_MC <- dati_long_mc_pca_ridotto$scores[, 1]
+
+library(dplyr)
+library(tidyr)
+library(lattice)
+
+# Riorganizza i dati
+dati_plot <- dati_long %>%
+  pivot_longer(
+    cols = c(PC_FF, PC_MC),
+    names_to = "componente",
+    values_to = "forza"
+  ) %>%
+  mutate(
+    componente = recode(componente,
+                        "PC_FF" = "Forza Fisica",
+                        "PC_MC" = "Marker Biologici")
+  )
+
+```
+
+Si osserva una dispersione molto ampia che non ci permette di confermare la presenza di una correlazione tra le due componenti. 
+
+```{r latticeplot_pca_mc_ff, echo=FALSE}
+text_settings <- list(
+  par.settings = list(
+    axis.text = list(cex = 1.2),
+    par.main.text = list(cex = 1.5),
+    par.xlab.text = list(cex = 1.3),
+    par.ylab.text = list(cex = 1.3),
+    strip.background = list(col = "#f0f0f0"),
+    strip.border = list(col = "black")
+  )
+)
+
+# Crea il grafico
+xyplot(forza ~ tempo | paziente,
+       data = dati_plot,
+       groups = componente,
+       type = "b",
+       pch = 16,
+       lty = 1,
+       auto.key = list(title = "Componente", space = "bottom", columns = 2, cex.title = 1.0, cex = 0.9),
+       xlab = "Tempo",
+       ylab = "Componente principale della forza",
+       main = "Andamento nel tempo delle componenti principali",
+       layout = c(7, 3),
+       scales = list(cex = 1.2),
+       par.settings = text_settings$par.settings)
+
+```
+
+
+```{r path_X, include=FALSE}
+path_X  <- "../../Dati/output/dati_lunghi_2025-08-27_AN.xlsx"
+X_raw <- read_excel(path_X)
+```
+
+```{r path_A, include=FALSE}
+path_A  <- "../../Dati/dati_long_mc.xlsx"
+A_raw <- read_excel(path_A)
+```
+
+```{r path_B, include=FALSE}
+path_B  <- "../../Dati/dati_long_ff.xlsx"
+B_raw <- read_excel(path_B)
+```
+
+```{r definizioni variabili, include=FALSE}
+X_vars <- c("patologia", "sintomo 1", "sintomo 2",
+            "arto dominante", "altezza_m", "sesso",
+            "peso", "bmi", "mkcal", "variazionemenu")
+
+A_vars <- c("RMR","VO2","RQ","rx","xc","FM","FMp","FFMI",
+            "TBW","TBWp","ECW","ECWp","ICW","ICWp","BCM","pha","BCMI")
+
+B_vars <- c("sx1","sx2","sx3","dx1","dx2","dx3",
+            "mediasx","mediadx","dssx","dsdx",
+            "situptest","squattest","chairstandtest","sitreachtest")
+```
+
+```{r spazio in variabili, include=FALSE}
+make_alias <- function(nm) gsub("\\s+","_", nm)
+X_alias <- setNames(make_alias(X_vars), X_vars)
+```
+
+```{r calcolo bmi, include=FALSE}
+X <- X_raw %>%
+  mutate(
+    tempo    = as.factor(tempo),
+    across(all_of(intersect(c("sesso","patologia","arto dominante"), names(.))), as.factor)
+  ) %>%
+  mutate(
+    bmi = case_when(
+      "bmi" %in% names(.) ~ `bmi`,
+      "peso" %in% names(.) & "altezza_m" %in% names(.) ~ `peso` / ((`altezza_m`)^2),
+      TRUE ~ NA_real_
+    )
+  )
+```
+
+```{r uniformo paziente, include=FALSE}
+if (!"paziente" %in% names(X_raw) && "paziente" %in% names(X_raw)) X_raw <- dplyr::rename(X_raw, paziente = paziente)
+if (!"paziente" %in% names(A_raw) && "paziente" %in% names(A_raw)) A_raw <- dplyr::rename(A_raw, paziente = paziente)
+if (!"paziente" %in% names(B_raw) && "paziente" %in% names(B_raw)) B_raw <- dplyr::rename(B_raw, paziente = paziente)
+```
+
+```{r uniformo tempo, include=FALSE}
+
+X <- X_raw %>% dplyr::mutate(tempo = as.character(tempo))
+A <- A_raw %>% dplyr::mutate(tempo = as.character(tempo))
+B <- B_raw %>% dplyr::mutate(tempo = as.character(tempo))
+```
+
+
+```{r controllo valori tempo, include=FALSE}
+unique(X$tempo); unique(A$tempo); unique(B$tempo)
+```
+
+```{r df0, include=FALSE}
+df0 <- X %>%
+  dplyr::select(paziente, tempo, dplyr::all_of(X_vars[X_vars %in% names(X)])) %>%
+  dplyr::left_join(A, by = c("paziente","tempo")) %>%
+  dplyr::left_join(B, by = c("paziente","tempo"))
+```
+
+
+```{r ripristino tempo come valore ordinato, include=FALSE}
+df0 <- df0 %>% dplyr::mutate(tempo = factor(tempo, levels = c("1","2","0")))
+```
+
+```{r standardizzazione, include=FALSE}
+z_scale <- function(x) as.numeric(scale(x))
+
+df_kpi <- df0 %>%
+  mutate(
+    across(all_of(A_vars), z_scale, .names = "zA_{col}"),
+    across(all_of(B_vars), z_scale, .names = "zB_{col}")
+  ) %>%
+  mutate(
+    kpi_a = rowMeans(across(starts_with("zA_")), na.rm = TRUE),
+    kpi_b = rowMeans(across(starts_with("zB_")), na.rm = TRUE)
+  )
+```
+
+```{r pulizia per collinearità, include=FALSE}
+X_keep <- c("patologia", "sintomo 1", "sintomo 2", "arto dominante", "sesso", "bmi", "mkcal", "variazionemenu")
+X_keep <- X_keep[X_keep %in% names(df_kpi)]
+```
+
+```{r df, include=FALSE}
+df <- df_kpi %>%
+  select(paziente, tempo, all_of(X_keep), kpi_a, kpi_b)
+```
+
+---
+
+### Distribuzioni KPI per tempo
+
+```{r plot_densita, fig.height=4, fig.width=9, echo=FALSE, message=FALSE, warning=FALSE}
+p_dens_A <- ggplot(df, aes(kpi_a, fill = tempo)) +
+  geom_density(alpha = 0.35) +
+  labs(title = "Distribuzione KPI_A per tempo", x = "KPI_A (z-media blocco A)", y = "Densità") +
+  theme_minimal()
+
+p_dens_B <- ggplot(df, aes(kpi_b, fill = tempo)) +
+  geom_density(alpha = 0.35) +
+  labs(title = "Distribuzione KPI_B per tempo", x = "KPI_B (z-media blocco B)", y = "Densità") +
+  theme_minimal()
+
+gridExtra::grid.arrange(p_dens_A, p_dens_B, ncol = 2)
+```
+
+Sicuramente si può evidenziare un calo nei valori delle variabili riferite ai marcatori nei tre tempi.
+
+
+### Scatter A vs B per tempo
+
+```{r plot_scatter, fig.height=4.8, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(df, aes(kpi_b, kpi_a, color = tempo)) +
+  geom_point(size = 2, alpha = 0.8) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Relazione sincrona KPI_A vs KPI_B per tempo",
+       x = "KPI_B (z-media blocco B)",
+       y = "KPI_A (z-media blocco A)") +
+  theme_minimal()
+```
+Pendenza positiva, c'è comunicazione tra i blocchi, ma si evidenziano nuvole larghe ⇒ **relazione moderata**, non stretta.
+
+### Spaghetti per soggetto
+
+```{r plot_spaghetti, fig.height=5.8, echo=FALSE, message=FALSE, warning=FALSE}
+df_longKPI <- df %>%
+  select(paziente, tempo, kpi_a, kpi_b) %>%
+  pivot_longer(cols = c(kpi_a, kpi_b), names_to = "kpi", values_to = "valore")
+
+ggplot(df_longKPI,
+       aes(x = tempo, y = valore,
+           group = interaction(paziente, kpi),
+           color = kpi)) +
+  geom_line(alpha = 0.35) +
+  geom_point(alpha = 0.8, position = position_jitter(width = 0.03, height = 0)) +
+  labs(title = "Andamento temporale KPI per soggetto",
+       x = "Tempo", y = "Valore KPI (z)") +
+  theme_minimal()
+```
+
+C'è eterogeneità tra soggetti: in alcuni A e B sono **paralleli**, in altri **divergono**. 
+Un'informazione molto utile suggerita da questo grafico, è rappresentata dalla maggiore 
+stabilità (minore variabilità) nei tre tempi dei valori delle variabili riferite al gruppo A ( marcatori clinici) per ogni soggetto rispetto alla maggiore variabilità dei valori nei tre tempi delle variabili riferiteal gruppo B (performance fisica) per ogni soggetto. 
+I DAti sono standardizzati pertanto e diverse unità di misura dei due gRuppi di variabili non influenzano i risultati di questa informazione.
+
+### Bland–Altman grezzo
+
+```{r plot_ba_grezzo, fig.height=4.8, echo=FALSE, message=FALSE, warning=FALSE}
+df_ba <- df %>%
+  mutate(mean_ab = (kpi_a + kpi_b)/2,
+         diff_ab =  kpi_a - kpi_b)
+
+ba_bias  <- mean(df_ba$diff_ab, na.rm = TRUE)
+ba_sd    <- sd(df_ba$diff_ab,   na.rm = TRUE)
+ba_low   <- ba_bias - 1.96*ba_sd
+ba_up    <- ba_bias + 1.96*ba_sd
+
+ggplot(df_ba, aes(mean_ab, diff_ab, color = tempo)) +
+  geom_point(alpha = 0.8) +
+  geom_hline(yintercept = ba_bias, linetype = "dashed") +
+  geom_hline(yintercept = ba_low,  linetype = "dotted") +
+  geom_hline(yintercept = ba_up,   linetype = "dotted") +
+  labs(title = "Bland–Altman grezzo (A vs B)",
+       x = "Media (A,B)", y = "Differenza (A − B)") +
+  theme_minimal()
+```
+
+Si utilizza il grafico Bland_altman per capire se le misurazioni effettuate con il metodo A
+dono concordi con quelle realizzate con il metodo B.
+Si basa sulle medie e pertanto possiamo utilizzarlo nel nostro contesto in quanto abbiamo
+dati quantitativi.
+Sull'asse verticale sono riportate le misurazioni tra le due misure e sull'asse orizzontale
+sono riportate le medie delle due misure. 
+Non si osserva dal grafico una sistematicità nelle differenze, anche in questo caso osserviamo
+una nuvola larga di punti, pertanto l'ipotesi di interscambiabilità tra i gruppi risulta ancora molto debole.
+
+
+```{r mcid_stima, echo=FALSE, message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyr)
+library(janitor)
+
+# Assumo che tu abbia già un oggetto "dati_long" (wide->long) con le colonne viste nel tuo Show in New Window.
+# Se non esiste, sostituisci qui con la tua lettura del file e il pivot come da tuoi chunk precedenti.
+
+# 1) Pulizia nomi (minuscoli, underscore, niente spazi)
+dati_proc <- dati_long %>% janitor::clean_names()
+
+# 2) Allineo 'tempo' a fattore ordinato (T0,T1,T2) o (0,1,2) in base a ciò che hai
+if (is.numeric(dati_proc$tempo)) {
+  dati_proc <- dati_proc %>% mutate(tempo = factor(tempo, levels = sort(unique(tempo))))
+} else {
+  # prova a riconoscere T0,T1,T2
+  lv <- unique(as.character(dati_proc$tempo))
+  if (all(lv %in% c("T0","T1","T2"))) {
+    dati_proc <- dati_proc %>% mutate(tempo = factor(tempo, levels = c("T0","T1","T2")))
+  } else {
+    dati_proc <- dati_proc %>% mutate(tempo = factor(tempo, levels = sort(unique(tempo))))
+  }
+}
+
+# 3) Sinonimi dei nomi per blocco A (correggo le piccole differenze viste nel tuo dataset)
+syn_map <- c(
+  "fmp"  = "f_mp",
+  "tbwp" = "tb_wp",
+  "ecwp" = "ec_wp",
+  "icwp" = "ic_wp"
+)
+
+# Funzione: se il nome "target" non esiste ma esiste il sinonimo, crea alias
+alias_if_needed <- function(df, target, alias) {
+  if (!(target %in% names(df)) && alias %in% names(df)) {
+    df <- dplyr::rename(df, !!target := .data[[alias]])
+  }
+  df
+}
+
+for (nm in names(syn_map)) {
+  dati_proc <- alias_if_needed(dati_proc, nm, syn_map[[nm]])
+}
+
+# 4) Definizione blocchi A e B (tutto minuscolo post-clean_names)
+A_vars <- c("rmr","vo2","rq","rx","xc","fm","fmp","ffmi","tbw","tbwp","ecw","ecwp","icw","icwp","bcm","pha","bcmi")
+B_vars <- c("sx1","sx2","sx3","dx1","dx2","dx3","mediasx","mediadx","dssx","dsdx","situptest","squattest","chairstandtest","sitreachtest")
+A_vars <- intersect(A_vars, names(dati_proc))
+B_vars <- intersect(B_vars, names(dati_proc))
+
+# 5) KPI z-mediati (standardizzazione per colonna e media riga)
+z_scale <- function(x) as.numeric(scale(x))
+
+dati_proc <- dati_proc %>%
+  mutate(
+    across(all_of(A_vars), z_scale, .names = "zA_{col}"),
+    across(all_of(B_vars), z_scale, .names = "zB_{col}")
+  ) %>%
+  mutate(
+    kpi_a = rowMeans(dplyr::across(starts_with("zA_")), na.rm = TRUE),
+    kpi_b = rowMeans(dplyr::across(starts_with("zB_")), na.rm = TRUE)
+  )
+
+df_change <- dati_proc %>%
+  arrange(paziente, tempo) %>%
+  group_by(paziente) %>%
+  mutate(kpi_a_lead = dplyr::lead(kpi_a)) %>%
+  ungroup() %>%
+  mutate(diff_a = kpi_a_lead - kpi_a) %>%
+  filter(!is.na(diff_a))
+
+if (nrow(df_change) == 0) {
+  warning("Non ho differenze adiacenti per stimare SD_change; MCID sarà NA.")
+  SD_change_A <- NA_real_
+  MCID <- NA_real_
+} else {
+  SD_change_A <- sd(df_change$diff_a, na.rm = TRUE)
+  MCID <- 0.5 * SD_change_A
+}
+
+
+```
+
+### Modello misto sincrono
+
+Modello:
+
+$$
+\text{KPI\_A}_{it} = \beta_0 + \beta_B\,\text{KPI\_B}_{it} + \boldsymbol{\beta}_X^\top \mathbf{X}_{it} + \gamma_{t} + u_{0i} + \varepsilon_{it},
+$$
+
+con $u_{0i}\sim \mathcal{N}(0,\sigma_u^2)$ (random intercept per paziente).
+
+```{r mixed_fit, echo=FALSE, message=FALSE, warning=FALSE}
+X_keep <- intersect(c("patologia","sintomo_1","sintomo_2","arto_dom","arto_dominante",
+                      "sesso","bmi","mkcal","variazionemenu","eta"),
+                    names(dati_proc))
+
+form_base <- as.formula(paste(
+  "kpi_a ~ kpi_b + tempo",
+  if (length(X_keep)>0) paste("+", paste(X_keep, collapse = " + ")) else "",
+  "+ (1|paziente)"
+))
+
+mod_base <- lmer(form_base, data = dati_proc, REML = TRUE, na.action = na.omit)
+summary(mod_base)
+MuMIn::r.squaredGLMM(mod_base)
+```
+
+
+Il modello è un modello misto lineare con intercetta casuale per paziente:
+tiene conto della dipendenza intra-paziente (più osservazioni per lo stesso soggetto).
+La variabilità tra pazienti è modesta (varianza intercetta casuale = 0.0138), ma non trascurabile rispetto alla varianza residua (0.0199).
+
+Non avere sintomi (sintomo null) ha un effetto negativo e significativo (p = 0.023): questa condizione si associa a valori più bassi della variabile risposta.
+Gli altri sintomi (iperattività, restrizione) non raggiungono la significatività, anche se alcuni effetti negativi suggeriscono una tendenza.
+
+Iperattività si riferisce alla componente comportamentale tipica di alcuni pazienti con anoressia, che manifestano attività fisica e motoria eccessiva (camminare molto, fare esercizio in modo compulsivo, incapacità di stare fermi).
+Restrizione, indica la modalità restrittiva della malattia, cioè la riduzione volontaria e significativa dell’apporto calorico (restrizione alimentare), tipica del sottotipo restrittivo di anoressia nervosa.
+Null probabilmente una categoria di riferimento o condizione in cui non sono presenti quei sintomi specifici.
+
+BMI: effetto positivo, molto significativo (p < 0.001). Un BMI più alto si associa a KPI più alti.
+Sesso (M vs F): tendenza positiva (p = 0.095), ma non significativa al 5%.
+Arto_dom (dominanza dell’arto): non significativo.
+Mkcal (introito calorico): non significativo.
+Variazione menusi: non significativo.
+Età: effetto negativo marginalmente significativo (p = 0.046): l’età più alta si associa a valori più bassi della variabile risposta.
+
+Le evidenze più solide sono per il BMI e, in misura minore, per l’età.
+
+L’effetto sincrono del KPI (kpi_b) non risulta significativo, suggerendo che la dinamica temporale potrebbe essere più complessa o richiedere un campione maggiore.

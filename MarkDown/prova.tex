@@ -224,7 +224,171 @@ fisica}\label{lattice-plot-per-i-test-di-performance-fisica}
 \subsection{Analisi delle componenti
 principali}\label{analisi-delle-componenti-principali}
 
-\pandocbounded{\includegraphics[keepaspectratio]{prova_files/figure-latex/grafico-pheatmap-1.pdf}}
-\pandocbounded{\includegraphics[keepaspectratio]{prova_files/figure-latex/grafico-pheatmap-2.pdf}}
+La PCA consiste nella trasformazione lineare delle variabili originarie
+in un insieme di componenti principali, un numero inferiore rispetto a
+quello iniziale, che spiegano la massima varianza possibile dei dati,
+minimizzando la perdita di informazione e riducendo al contempo la
+dimensionalità del problema. La dimensionalità di un dataset corrisponde
+al numero di variabili (o caratteristiche) che descrivono ogni
+osservazione. Nel nostro caso, abbiamo due insiemi di variabili da voler
+confrontare per valutare se esiste un'associazione tra i due gruppi, a
+tal proposito si esegue la PCA su entrambi i gruppi e si considera la
+prima componente principale per entrambi con l'idea di confrontare la
+prima componente principale del primo gruppo e la prima componente
+principale del secondo gruppo. sie esegue prima una standardizzazione
+delle variabili perché la PCA si basa sulla varianza: se le variabili
+hanno scale diverse, dominerebbero quelle con varianze maggiori.
+
+\subsubsection{PCA sulle variabili riferite ai marcatori
+clinici}\label{pca-sulle-variabili-riferite-ai-marcatori-clinici}
+
+\pandocbounded{\includegraphics[keepaspectratio]{prova_files/figure-latex/grafico-pheatmap_mc-1.pdf}}
+
+\subsubsection{Visualizzazione della varianza totale spiegata da
+ciascuna componente
+principale}\label{visualizzazione-della-varianza-totale-spiegata-da-ciascuna-componente-principale}
+
+\begin{verbatim}
+## Importance of components:
+##                           Comp.1    Comp.2    Comp.3     Comp.4     Comp.5
+## Standard deviation     2.2717888 2.1252822 1.5809678 1.07836702 1.06400160
+## Proportion of Variance 0.3035897 0.2656955 0.1470270 0.06840444 0.06659408
+## Cumulative Proportion  0.3035897 0.5692852 0.7163122 0.78471665 0.85131073
+##                            Comp.6     Comp.7     Comp.8     Comp.9     Comp.10
+## Standard deviation     0.88433289 0.80212273 0.75011654 0.51488113 0.395159507
+## Proportion of Variance 0.04600263 0.03784711 0.03309852 0.01559427 0.009185355
+## Cumulative Proportion  0.89731336 0.93516047 0.96825899 0.98385326 0.993038614
+##                            Comp.11      Comp.12      Comp.13      Comp.14
+## Standard deviation     0.310333802 0.1056321999 0.0733202763 0.0571529671
+## Proportion of Variance 0.005665122 0.0006563625 0.0003162272 0.0001921448
+## Cumulative Proportion  0.998703736 0.9993600981 0.9996763253 0.9998684701
+##                             Comp.15      Comp.16      Comp.17
+## Standard deviation     3.800125e-02 2.753579e-02 5.804637e-03
+## Proportion of Variance 8.494675e-05 4.460117e-05 1.981989e-06
+## Cumulative Proportion  9.999534e-01 9.999980e-01 1.000000e+00
+\end{verbatim}
+
+\subsubsection{Screegraph}\label{screegraph}
+
+\pandocbounded{\includegraphics[keepaspectratio]{prova_files/figure-latex/plot_pca_mc-1.pdf}}
+
+Si sceglie il numero minimo di componenti che spiegano abbastanza
+varianza nei dati, evitando di includerne troppi (overfitting) o troppo
+pochi (perdita di informazione), segnuendo la regola del gomito.
+All'inizio, la varianza spiegata cala molto velocemente, dopo un certo
+punto il ``gomito'', la riduzione nella varianza spiegata diventa più
+lenta e graduale. Il ``gomito'' è il punto dopo il quale aggiungere
+ulteriori componenti non porta grandi miglioramenti.Il numero di
+componenti prima del gomito è quello che conviene mantenere. Scegliamo
+di considerare solo le prime 3 componenti principali, perché sono quelle
+che spiegano la maggior parte della varianza totale.
+
+Per valutare quanto ogni variabile contribuisce alla spiegazione
+complessiva della varianza considerata dalle prime tre componenti
+principali, consideriamo l'indice di contributo alla varianza totale
+spiegata.
+
+L'indice di contributo per la variabile \(j\) è definito come:
+\[\text{I}_j = \sum_{i=1}^{k} \frac{(loading_{ji})^2}{\lambda_i}\]
+
+I loadings sono i coefficienti che indicano quanto ciascuna variabile
+originale contribuisce a ciascuna componente principale. In termini
+geometrici dicono quanto ogni variabile ``pesa'' in ogni nuovo asse. Gli
+autovalori rappresentano la varianza spiegata da ciascuna componente
+principale. Più l'autovalore è alto, più quella componente spiega una
+parte importante dell'informazione nei dati.
+
+Si osserva nella tabella seguente quanto ogni variabile conrtibuisce
+alla spiegazione complessiva della varianza spiegata dalle prime 3
+componenti principali
+
+\pandocbounded{\includegraphics[keepaspectratio]{prova_files/figure-latex/graficoetabella_mc-1.pdf}}
+
+S procede rimuovendo la variabile con un indice più basso e si
+rieffettua la pca per valutare pian piano quanto migliora la varianza
+spiegata dalla prima componente. Dopo la rimozione delle ultime sei
+variabili ( ``RQ'', ``BCM'',``FFMI'', ``BCMI'', ``RMR'', ``VO2'')) ci si
+accorge che la prima componente riesce a spiegare circa il 40\% della
+variabilità totale, considerando invece anche la seconda componente
+principale riusciremmo a spiegare circa il 70\% della variabilità
+totale, che rappresenta un ottimo risultato.
+
+\pandocbounded{\includegraphics[keepaspectratio]{prova_files/figure-latex/dati_long_mc_ridotto-1.pdf}}
+
+\subsubsection{Visualizzazione della varianza totale spiegata da
+ciascuna componente
+principale}\label{visualizzazione-della-varianza-totale-spiegata-da-ciascuna-componente-principale-1}
+
+\begin{verbatim}
+## Importance of components:
+##                           Comp.1    Comp.2    Comp.3     Comp.4     Comp.5
+## Standard deviation     2.1055766 1.9518316 1.5121351 0.56451944 0.35783528
+## Proportion of Variance 0.4030411 0.3463315 0.2078684 0.02897111 0.01164055
+## Cumulative Proportion  0.4030411 0.7493727 0.9572411 0.98621217 0.99785273
+##                             Comp.6       Comp.7       Comp.8       Comp.9
+## Standard deviation     0.107655291 0.0757703865 0.0614813013 0.0407930234
+## Proportion of Variance 0.001053606 0.0005219229 0.0003436319 0.0001512792
+## Cumulative Proportion  0.998906333 0.9994282561 0.9997718879 0.9999231671
+##                             Comp.10      Comp.11
+## Standard deviation     2.833143e-02 6.518634e-03
+## Proportion of Variance 7.296997e-05 3.862963e-06
+## Cumulative Proportion  9.999961e-01 1.000000e+00
+\end{verbatim}
+
+\subsubsection{Screegraph}\label{screegraph-1}
+
+\pandocbounded{\includegraphics[keepaspectratio]{prova_files/figure-latex/Screegraph_mc_ridotto-1.pdf}}
+
+Scegliamo anche in questo caso in base alla regola del gomito, di
+considerare solo le prime 3 componenti principali, perché sono quelle
+che spiegano la maggior parte della varianza totale
+
+Si osserva nella tabella seguente quanto ogni variabile contribuisce
+alla spiegazione complessiva della varianza spiegata dalle prime 3
+componenti principali
+
+\pandocbounded{\includegraphics[keepaspectratio]{prova_files/figure-latex/graficoetabella_mc_rdiotto-1.pdf}}
+
+\subsubsection{PCA sulle variabili riferite alla forza
+fisica}\label{pca-sulle-variabili-riferite-alla-forza-fisica}
+
+\pandocbounded{\includegraphics[keepaspectratio]{prova_files/figure-latex/grafico-pheatmap_ff-1.pdf}}
+
+\subsubsection{Visualizzazione della varianza totale spiegata da
+ciascuna componente
+principale}\label{visualizzazione-della-varianza-totale-spiegata-da-ciascuna-componente-principale-2}
+
+\begin{verbatim}
+## Importance of components:
+##                           Comp.1    Comp.2     Comp.3     Comp.4     Comp.5
+## Standard deviation     2.6879237 1.3217181 1.14130972 1.03760645 0.95073671
+## Proportion of Variance 0.5160667 0.1247813 0.09304199 0.07690194 0.06456431
+## Cumulative Proportion  0.5160667 0.6408481 0.73389006 0.81079200 0.87535630
+##                           Comp.6     Comp.7     Comp.8     Comp.9     Comp.10
+## Standard deviation     0.7554211 0.64812226 0.51922764 0.45370087 0.322391631
+## Proportion of Variance 0.0407615 0.03000446 0.01925695 0.01470318 0.007424026
+## Cumulative Proportion  0.9161178 0.94612227 0.96537922 0.98008240 0.987506422
+##                            Comp.11     Comp.12      Comp.13      Comp.14
+## Standard deviation     0.311693867 0.278849462 2.427736e-08 2.282854e-08
+## Proportion of Variance 0.006939505 0.005554073 4.209931e-17 3.722445e-17
+## Cumulative Proportion  0.994445927 1.000000000 1.000000e+00 1.000000e+00
+\end{verbatim}
+
+\subsubsection{Screegraph}\label{screegraph-2}
+
+\pandocbounded{\includegraphics[keepaspectratio]{prova_files/figure-latex/plot_pca_ff-1.pdf}}
+
+\subsection{Grafico relazione tra la prima componente principale
+ottenuta}\label{grafico-relazione-tra-la-prima-componente-principale-ottenuta}
+
+\subsection{dal blocco di variabili ridotto riferite ai marcatori
+biologici e
+il}\label{dal-blocco-di-variabili-ridotto-riferite-ai-marcatori-biologici-e-il}
+
+\subsection{secondo blocco di variabili riferite alla forza
+fisica}\label{secondo-blocco-di-variabili-riferite-alla-forza-fisica}
+
+\pandocbounded{\includegraphics[keepaspectratio]{prova_files/figure-latex/latticeplot_pca_mc_ff-1.pdf}}
+\pandocbounded{\includegraphics[keepaspectratio]{prova_files/figure-latex/latticeplot_pca_mc_ff-2.pdf}}
 
 \end{document}
